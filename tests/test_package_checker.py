@@ -173,6 +173,40 @@ Name    Id    Version    Available    Source
     assert parse_winget_output(headers_only) == []
 
 
+def test_parse_winget_output_filters_informational_footers():
+    """Verify footer notes with package(s) and pins are discarded without preceding upgrades line."""
+    output_with_footers = """
+Name                  Id                  Version       Available     Source
+--------------------- ------------------- ------------- ------------- ------
+VLC media player      VideoLAN.VLC        3.0.18        3.0.20        winget
+2 package(s) have version numbers that cannot be determined. Use --include-unknown to see all results.
+1 package(s) have pins that prevent upgrade.
+"""
+    updates = parse_winget_output(output_with_footers)
+    assert len(updates) == 1
+    assert updates[0].name == "VLC media player"
+    assert updates[0].id == "VideoLAN.VLC"
+    assert not any("package(s)" in item.name for item in updates)
+
+    # Verify when output contains only footers without package rows or upgrades available line
+    footers_only = """
+Name                  Id                  Version       Available     Source
+--------------------- ------------------- ------------- ------------- ------
+2 package(s) have version numbers that cannot be determined. Use --include-unknown to see all results.
+1 package(s) have pins that prevent upgrade.
+"""
+    assert parse_winget_output(footers_only) == []
+
+    # Verify reversed footer order where pins line appears first
+    footers_pins_first = """
+Name                  Id                  Version       Available     Source
+--------------------- ------------------- ------------- ------------- ------
+1 package(s) have pins that prevent upgrade.
+2 package(s) have version numbers that cannot be determined. Use --include-unknown to see all results.
+"""
+    assert parse_winget_output(footers_pins_first) == []
+
+
 @pytest.mark.asyncio
 async def test_check_winget_updates_success():
     """Verify check_winget_updates executes winget command and parses packages."""

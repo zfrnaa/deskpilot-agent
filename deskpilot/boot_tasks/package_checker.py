@@ -97,7 +97,11 @@ def parse_winget_output(output: str) -> list[WingetUpdateItem]:
         # Check for summary footer indicators
         if re.search(r"\b\d+\s+upgrades?\s+available\b", trimmed, re.IGNORECASE):
             break
-        if re.search(r"\bpackages?\s+have\s+version\b", trimmed, re.IGNORECASE):
+        if re.search(
+            r"\b(?:\d+\s+package\(s\)|package(?:\(s\)|s)?\s+have|have\s+pins\b)",
+            trimmed,
+            re.IGNORECASE,
+        ):
             break
         if trimmed.startswith("-"):
             continue
