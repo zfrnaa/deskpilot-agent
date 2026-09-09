@@ -1,0 +1,25 @@
+﻿# Superpowers Scratch
+.superpowers/
+
+# Python & Environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.class
+
+# Pytest / Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Sensitive Credentials & Tokens
+.env
+credentials.json
+token.json
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
