@@ -1,4 +1,4 @@
-﻿"""DeskPilot: Personal multi-agent boot orchestrator."""
+"""DeskPilot: Personal multi-agent boot orchestrator."""
 
 from deskpilot.config import (
     CalendarConfig,

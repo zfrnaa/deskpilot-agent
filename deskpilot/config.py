@@ -1,4 +1,4 @@
-﻿"""Configuration models and loader for DeskPilot."""
+"""Configuration models and loader for DeskPilot."""
 
 from __future__ import annotations
 
@@ -106,6 +106,36 @@ class WingetConfig(BaseModel):
     timeout_secs: int = 15
 
 
+class MappedSettingsSource(PydanticBaseSettingsSource):
+    """Wraps a settings source to map flat notion_* variables to nested notion dictionary."""
+
+    def __init__(self, source: PydanticBaseSettingsSource) -> None:
+        super().__init__(source.settings_cls)
+        self.source = source
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:
+        return self.source.get_field_value(field, field_name)
+
+    def __call__(self) -> dict[str, Any]:
+        data = self.source()
+        if not isinstance(data, dict):
+            return data
+        notion = data.setdefault("notion", {})
+        if not isinstance(notion, dict):
+            notion = {}
+            data["notion"] = notion
+        for flat, nested in [
+            ("notion_token", "token"),
+            ("notion_parent_page_id", "parent_page_id"),
+            ("notion_read_later_database_id", "read_later_database_id"),
+        ]:
+            if flat in data and nested not in notion:
+                notion[nested] = data[flat]
+            if nested in notion and flat not in data:
+                data[flat] = notion[nested]
+        return data
+
+
 class Settings(BaseSettings):
     """Global configuration settings for DeskPilot."""
 
@@ -130,6 +160,11 @@ class Settings(BaseSettings):
     langchain_api_key: str = ""
     langchain_project: str = "DeskPilot"
 
+    # Flat Notion credentials support (e.g. from .env or os.environ)
+    notion_token: str = ""
+    notion_parent_page_id: str = ""
+    notion_read_later_database_id: str = ""
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -145,8 +180,8 @@ class Settings(BaseSettings):
 
         sources: list[PydanticBaseSettingsSource] = [
             init_settings,
-            env_settings,
-            dotenv_settings,
+            MappedSettingsSource(env_settings),
+            MappedSettingsSource(dotenv_settings),
         ]
         if yaml_path and Path(yaml_path).exists():
             sources.append(YamlConfigSettingsSource(settings_cls, yaml_file=yaml_path))
@@ -155,13 +190,31 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def populate_flat_env_vars(self) -> Settings:
-        """Populate nested credentials from standard environment variables if unset."""
-        if not self.notion.token and os.getenv("NOTION_TOKEN"):
-            self.notion.token = os.getenv("NOTION_TOKEN", "")
-        if not self.notion.parent_page_id and os.getenv("NOTION_PARENT_PAGE_ID"):
-            self.notion.parent_page_id = os.getenv("NOTION_PARENT_PAGE_ID", "")
-        if not self.notion.read_later_database_id and os.getenv("NOTION_READ_LATER_DATABASE_ID"):
-            self.notion.read_later_database_id = os.getenv("NOTION_READ_LATER_DATABASE_ID", "")
+        """Populate nested credentials from flat fields or environment variables if unset."""
+        if not self.notion.token:
+            if self.notion_token:
+                self.notion.token = self.notion_token
+            elif os.getenv("NOTION_TOKEN"):
+                self.notion.token = os.getenv("NOTION_TOKEN", "")
+        if not self.notion_token and self.notion.token:
+            self.notion_token = self.notion.token
+
+        if not self.notion.parent_page_id:
+            if self.notion_parent_page_id:
+                self.notion.parent_page_id = self.notion_parent_page_id
+            elif os.getenv("NOTION_PARENT_PAGE_ID"):
+                self.notion.parent_page_id = os.getenv("NOTION_PARENT_PAGE_ID", "")
+        if not self.notion_parent_page_id and self.notion.parent_page_id:
+            self.notion_parent_page_id = self.notion.parent_page_id
+
+        if not self.notion.read_later_database_id:
+            if self.notion_read_later_database_id:
+                self.notion.read_later_database_id = self.notion_read_later_database_id
+            elif os.getenv("NOTION_READ_LATER_DATABASE_ID"):
+                self.notion.read_later_database_id = os.getenv("NOTION_READ_LATER_DATABASE_ID", "")
+        if not self.notion_read_later_database_id and self.notion.read_later_database_id:
+            self.notion_read_later_database_id = self.notion.read_later_database_id
+
         if not self.gemini_api_key and os.getenv("GEMINI_API_KEY"):
             self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         return self
@@ -173,6 +226,11 @@ class Settings(BaseSettings):
         env_file: Path | str | None = None,
     ) -> Settings:
         """Load settings with an optional custom YAML config path and .env file."""
+        if config_path is not None:
+            path_obj = Path(config_path)
+            if not path_obj.is_file():
+                raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
         original_yaml = getattr(cls, "_custom_yaml_file", None)
         try:
             if config_path is not None:

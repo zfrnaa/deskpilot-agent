@@ -1,4 +1,4 @@
-﻿"""Runtime state models for DeskPilot boot orchestrator."""
+"""Runtime state models for DeskPilot boot orchestrator."""
 
 from __future__ import annotations
 

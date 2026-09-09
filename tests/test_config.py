@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import pytest
 from deskpilot.config import (
     Settings,
@@ -116,3 +116,42 @@ def test_boot_state_mutation_and_helpers():
     assert len(state.errors) == 1
     assert "Winget" in state.errors[0]
     assert state.agent_findings["screenshot_agent"]["synced_count"] == 3
+
+
+def test_settings_load_from_dotenv(tmp_path: Path):
+    dotenv_file = tmp_path / ".env"
+    dotenv_file.write_text(
+        "NOTION_TOKEN=secret_dotenv_token\n"
+        "NOTION_PARENT_PAGE_ID=dotenv_parent_123\n"
+        "NOTION_READ_LATER_DATABASE_ID=dotenv_db_456\n"
+        "GEMINI_API_KEY=dotenv_gemini_key\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings.load(env_file=dotenv_file)
+    assert settings.notion.token == "secret_dotenv_token"
+    assert settings.notion.parent_page_id == "dotenv_parent_123"
+    assert settings.notion.read_later_database_id == "dotenv_db_456"
+    assert settings.gemini_api_key == "dotenv_gemini_key"
+    assert settings.notion_token == "secret_dotenv_token"
+
+
+def test_settings_load_missing_config_raises_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        Settings.load(config_path="missing.yaml")
+
+    with pytest.raises(FileNotFoundError):
+        load_settings(config_path=Path("non_existent_path.yaml"))
+
+
+def test_no_utf8_bom_in_python_files():
+    project_root = Path(__file__).parent.parent
+    py_files = [
+        project_root / "deskpilot" / "__init__.py",
+        project_root / "deskpilot" / "config.py",
+        project_root / "deskpilot" / "state.py",
+        project_root / "tests" / "test_config.py",
+    ]
+    for py_file in py_files:
+        raw_bytes = py_file.read_bytes()
+        assert not raw_bytes.startswith(b"\xef\xbb\xbf"), f"BOM found in {py_file}"
