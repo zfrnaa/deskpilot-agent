@@ -346,6 +346,79 @@ async def test_check_winget_updates_non_zero_exit_with_error():
         assert "network unreachable" in result.error
 
 
+def test_parse_winget_output_filters_ignore_packages_by_name_and_id():
+    """Verify parse_winget_output drops packages matching ignore_packages."""
+    updates = parse_winget_output(
+        SAMPLE_WINGET_OUTPUT,
+        ignore_packages=["AdvancedSystemCare", "RevoUninstallerPro"],
+    )
+    assert len(updates) == 4
+    names = [u.name for u in updates]
+    ids = [u.id for u in updates]
+    assert "Advanced SystemCare" not in names
+    assert "IObit.AdvancedSystemCare" not in ids
+    assert "Revo Uninstaller Pro 5.5.0" not in names
+    assert "RevoUninstaller.RevoUninstallerPro" not in ids
+    assert "CCleaner 7" in names
+    assert "Power Automate for desktop" in names
+
+
+def test_parse_winget_output_ignore_packages_case_insensitive_substring():
+    """Verify ignore_packages performs case-insensitive substring matches on name and id."""
+    # Substring in id (lowercase)
+    updates_id = parse_winget_output(
+        SAMPLE_WINGET_OUTPUT,
+        ignore_packages=["advancedsystemcare"],
+    )
+    assert len(updates_id) == 5
+    assert not any("AdvancedSystemCare" in u.id for u in updates_id)
+
+    # Substring in name
+    updates_name = parse_winget_output(
+        SAMPLE_WINGET_OUTPUT,
+        ignore_packages=["power automate"],
+    )
+    assert len(updates_name) == 5
+    assert not any("Power Automate" in u.name for u in updates_name)
+
+    # Substring in id (Revo)
+    updates_revo = parse_winget_output(
+        SAMPLE_WINGET_OUTPUT,
+        ignore_packages=["revouninstallerpro"],
+    )
+    assert len(updates_revo) == 5
+    assert not any("RevoUninstallerPro" in u.id for u in updates_revo)
+
+
+def test_parse_winget_output_ignore_packages_none_or_empty():
+    """Verify passing None or empty list to ignore_packages returns all packages."""
+    updates_none = parse_winget_output(SAMPLE_WINGET_OUTPUT, ignore_packages=None)
+    assert len(updates_none) == 6
+
+    updates_empty = parse_winget_output(SAMPLE_WINGET_OUTPUT, ignore_packages=[])
+    assert len(updates_empty) == 6
+
+
+@pytest.mark.asyncio
+async def test_check_winget_updates_applies_config_ignore_packages():
+    """Verify check_winget_updates passes config.ignore_packages to drop excluded packages."""
+    with patch("deskpilot.boot_tasks.package_checker.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=SAMPLE_WINGET_OUTPUT,
+            stderr="",
+            returncode=0,
+        )
+
+        config = WingetConfig()  # defaults to ["AdvancedSystemCare", "RevoUninstallerPro"]
+        result = await check_winget_updates(config=config)
+
+        assert result.total_count == 4
+        assert len(result.updates) == 4
+        ids = [u.id for u in result.updates]
+        assert "IObit.AdvancedSystemCare" not in ids
+        assert "RevoUninstaller.RevoUninstallerPro" not in ids
+
+
 def test_no_utf8_bom_in_package_checker_files():
     """Verify no UTF-8 BOM headers exist in checker module or test file."""
     project_root = Path(__file__).parent.parent

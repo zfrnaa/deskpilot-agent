@@ -35,3 +35,6 @@ downloads:
 winget:
   enabled: true
   timeout_secs: 15
+  ignore_packages:
+    - AdvancedSystemCare
+    - RevoUninstallerPro

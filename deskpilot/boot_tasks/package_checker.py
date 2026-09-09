@@ -31,17 +31,22 @@ class WingetUpdateResult(BaseModel):
     error: str | None = None
 
 
-def parse_winget_output(output: str) -> list[WingetUpdateItem]:
+def parse_winget_output(
+    output: str = "",
+    ignore_packages: list[str] | None = None,
+    raw_output: str | None = None,
+) -> list[WingetUpdateItem]:
     """Parse tabular winget upgrade output into a list of WingetUpdateItem.
 
     Safely handles column alignments, variable column widths, optional Source column,
-    and trailing summary footers.
+    trailing summary footers, and filters out packages matching ignore_packages.
     """
-    if not output or not output.strip():
+    text = raw_output if raw_output is not None else output
+    if not text or not text.strip():
         return []
 
     # Strip ANSI terminal escape codes
-    clean = re.sub(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", output)
+    clean = re.sub(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", text)
     lines = [line.strip("\r") for line in clean.split("\n")]
 
     # Find the separator line consisting of dashes directly below the header
@@ -135,6 +140,27 @@ def parse_winget_output(output: str) -> list[WingetUpdateItem]:
         if not available_version:
             continue
 
+        if ignore_packages:
+            name_lower = name.lower()
+            id_lower = id_val.lower()
+            name_nospace = name_lower.replace(" ", "")
+            id_nospace = id_lower.replace(" ", "")
+            should_ignore = False
+            for pattern in ignore_packages:
+                p = pattern.strip().lower()
+                if not p:
+                    continue
+                p_nospace = p.replace(" ", "")
+                if (
+                    p in name_lower
+                    or p in id_lower
+                    or (p_nospace and (p_nospace in name_nospace or p_nospace in id_nospace))
+                ):
+                    should_ignore = True
+                    break
+            if should_ignore:
+                continue
+
         updates.append(
             WingetUpdateItem(
                 name=name,
@@ -200,7 +226,8 @@ async def check_winget_updates(
             error=f"winget execution failed: {e}",
         )
 
-    updates = parse_winget_output(stdout)
+    ignore_packages = config.ignore_packages if config is not None else None
+    updates = parse_winget_output(stdout, ignore_packages=ignore_packages)
     if updates:
         return WingetUpdateResult(
             total_count=len(updates),

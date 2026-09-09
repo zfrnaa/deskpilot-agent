@@ -104,6 +104,9 @@ class WingetConfig(BaseModel):
 
     enabled: bool = True
     timeout_secs: int = 15
+    ignore_packages: list[str] = Field(
+        default_factory=lambda: ["AdvancedSystemCare", "RevoUninstallerPro"]
+    )
 
 
 class MappedSettingsSource(PydanticBaseSettingsSource):

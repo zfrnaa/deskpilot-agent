@@ -51,6 +51,12 @@ def test_default_config_models():
     winget_cfg = WingetConfig()
     assert winget_cfg.enabled is True
     assert winget_cfg.timeout_secs == 15
+    assert winget_cfg.ignore_packages == ["AdvancedSystemCare", "RevoUninstallerPro"]
+
+
+def test_winget_config_custom_ignore_packages():
+    cfg = WingetConfig(ignore_packages=["CustomApp", "AnotherApp"])
+    assert cfg.ignore_packages == ["CustomApp", "AnotherApp"]
 
 
 def test_settings_load_from_yaml(tmp_path: Path):

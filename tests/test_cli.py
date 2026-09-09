@@ -374,6 +374,21 @@ async def test_execute_menu_action_option_4_winget_upgrade():
 
 
 @pytest.mark.asyncio
+async def test_execute_menu_action_option_4_notifies_ignored_packages():
+    """Verify that choice '4' prints a notice regarding ignored packages."""
+    console = Console(record=True, width=100)
+    settings = Settings()
+
+    with patch("deskpilot.cli.subprocess.run") as mock_sub:
+        should_continue = await execute_menu_action("4", console=console, settings=settings)
+        assert should_continue is True
+        mock_sub.assert_called_once()
+        output = console.export_text()
+        assert "AdvancedSystemCare" in output
+        assert "RevoUninstallerPro" in output
+
+
+@pytest.mark.asyncio
 async def test_execute_menu_action_option_4_winget_not_found():
     """Verify graceful handling if winget executable is not found."""
     console = Console(record=True, width=100)

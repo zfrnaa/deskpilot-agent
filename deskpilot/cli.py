@@ -389,6 +389,11 @@ async def execute_menu_action(
     elif normalized_choice == "4":
         c.print("[cyan]Executing interactive winget upgrade...[/cyan]")
         try:
+            cfg = settings or load_settings()
+            if cfg.winget.ignore_packages:
+                c.print(
+                    f"[yellow]Ignored packages excluded from reporting: {', '.join(cfg.winget.ignore_packages)}[/yellow]"
+                )
             subprocess.run(["winget", "upgrade", "--all", "--include-unknown"], check=False)
         except FileNotFoundError:
             c.print("[red]winget executable not found on this system.[/red]")
