@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import subprocess
 import sys
@@ -271,10 +272,26 @@ def prompt_action_menu(
     return normalize_menu_choice(prompt_func("Select an option [0-4]: "))
 
 
-def execute_menu_action(
+def parse_args(args: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments for DeskPilot CLI."""
+    parser = argparse.ArgumentParser(
+        prog="deskpilot",
+        description="DeskPilot Morning Command Center and Boot Orchestrator",
+    )
+    parser.add_argument(
+        "--startup",
+        action="store_true",
+        help="Run in non-interactive startup mode (executes boot sequence, renders dashboard, and exits without waiting for user input)",
+    )
+    parsed, _ = parser.parse_known_args(args)
+    return parsed
+
+
+async def execute_menu_action(
     choice: str,
     state: BootState | None = None,
     console: Console | None = None,
+    settings: Settings | None = None,
 ) -> bool:
     """Execute the selected menu action.
 
@@ -288,15 +305,83 @@ def execute_menu_action(
         return False
     elif normalized_choice == "1":
         c.print("[cyan]Starting Screenshot Triage Agent...[/cyan]")
-        c.print("[yellow]Screenshot Triage Agent (LangGraph & Notion) will be configured in Task 7.[/yellow]")
+        try:
+            from deskpilot.agent_tasks.screenshot_agent.graph import run_screenshot_triage
+
+            cfg = settings or load_settings()
+            triage_res = await run_screenshot_triage(cfg)
+            if state is not None:
+                state.set_finding("screenshot_triage", triage_res)
+
+            synced = triage_res.get("synced_count", 0)
+            deleted = triage_res.get("deleted_count", 0)
+            errors = triage_res.get("errors", [])
+            c.print(f"[bold green]Screenshot Triage complete:[/bold green] Synced: {synced}, Deleted: {deleted}")
+            if errors:
+                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+        except Exception as e:
+            c.print(f"[red]Screenshot Triage failed: {e}[/red]")
         return True
     elif normalized_choice == "2":
         c.print("[cyan]Starting Downloads Folder Cleanup Agent...[/cyan]")
-        c.print("[yellow]Downloads Cleanup Agent will be configured in Task 8.[/yellow]")
+        try:
+            from deskpilot.agent_tasks.downloads_agent.graph import run_downloads_hygiene
+
+            cfg = settings or load_settings()
+            dh_res = await run_downloads_hygiene(cfg)
+            if state is not None:
+                state.set_finding("downloads_hygiene", dh_res)
+
+            freed = format_bytes(dh_res.get("total_bytes_freed", 0))
+            moved = dh_res.get("total_files_moved", 0)
+            errors = dh_res.get("errors", [])
+            c.print(f"[bold green]Downloads Cleanup complete:[/bold green] Freed: {freed}, Moved to Archive: {moved}")
+            if errors:
+                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+        except Exception as e:
+            c.print(f"[red]Downloads Cleanup failed: {e}[/red]")
         return True
     elif normalized_choice == "3":
-        c.print("[cyan]Cleaning Floorp Bookmarks...[/cyan]")
-        c.print("[yellow]Floorp bookmark cleanup completed (stub).[/yellow]")
+        c.print("[cyan]Auditing Floorp Bookmarks...[/cyan]")
+        try:
+            cfg = settings or load_settings()
+            fb_res = await audit_floorp_bookmarks(config=cfg.floorp)
+            if state is not None:
+                state.floorp_bookmarks = fb_res
+
+            if fb_res.error:
+                c.print(f"[yellow]Floorp bookmark audit error: {fb_res.error}[/yellow]")
+            else:
+                c.print(
+                    Panel(
+                        f"[bold]Total Bookmarks:[/bold] {fb_res.total_bookmarks}\n"
+                        f"[bold]Noisy Tracking Bookmarks:[/bold] {fb_res.noisy_count}\n"
+                        f"[bold]Duplicate Groups:[/bold] {fb_res.duplicate_groups_count}\n"
+                        f"[bold]Profile Path:[/bold] {fb_res.profile_path or 'Default'}",
+                        title="[bold magenta]Floorp Bookmarks Preview[/bold magenta]",
+                        border_style="magenta",
+                    )
+                )
+                if fb_res.sample_noisy:
+                    noisy_table = Table(
+                        title="Sample Noisy Bookmarks (Tracking URLs / Low Quality Titles)",
+                        show_header=True,
+                    )
+                    noisy_table.add_column("Title", style="white", ratio=1)
+                    noisy_table.add_column("URL", style="dim", ratio=2)
+                    for item in fb_res.sample_noisy[:5]:
+                        noisy_table.add_row(item.get("title", "")[:40], item.get("url", "")[:60])
+                    c.print(noisy_table)
+
+                if fb_res.sample_duplicates:
+                    dup_table = Table(title="Sample Duplicate Bookmark Groups", show_header=True)
+                    dup_table.add_column("Count", style="cyan", width=8)
+                    dup_table.add_column("Normalized URL", style="dim", ratio=1)
+                    for item in fb_res.sample_duplicates[:5]:
+                        dup_table.add_row(str(item.get("count", 0)), item.get("url", "")[:70])
+                    c.print(dup_table)
+        except Exception as e:
+            c.print(f"[red]Floorp bookmark audit failed: {e}[/red]")
         return True
     elif normalized_choice == "4":
         c.print("[cyan]Executing interactive winget upgrade...[/cyan]")
@@ -316,6 +401,7 @@ async def main_async(
     console: Console | None = None,
     settings: Settings | None = None,
     prompt_func: Callable[[str], str] = input,
+    startup: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
     c = console or Console()
@@ -332,6 +418,10 @@ async def main_async(
     # Render terminal dashboard
     render_dashboard(state, console=c)
 
+    if startup:
+        c.print("[dim]Startup mode active: boot sequence completed successfully.[/dim]")
+        return 0
+
     # Interactive menu loop
     while True:
         try:
@@ -340,15 +430,21 @@ async def main_async(
             c.print("\n[dim]Dismissed. Exiting DeskPilot.[/dim]")
             return 0
 
-        should_continue = execute_menu_action(choice, state=state, console=c)
+        should_continue = await execute_menu_action(
+            choice,
+            state=state,
+            console=c,
+            settings=settings,
+        )
         if not should_continue:
             return 0
 
 
-def main() -> None:
+def main(args: list[str] | None = None) -> None:
     """DeskPilot CLI entry point."""
+    parsed = parse_args(args if args is not None else sys.argv[1:])
     try:
-        sys.exit(asyncio.run(main_async()))
+        sys.exit(asyncio.run(main_async(startup=parsed.startup)))
     except KeyboardInterrupt:
         sys.exit(0)
 

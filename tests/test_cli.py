@@ -235,35 +235,103 @@ def test_prompt_action_menu_renders_and_returns_choice():
     assert "[0]" in output and "Dismiss & Exit" in output
 
 
-def test_execute_menu_action_exit_choice_0():
+@pytest.mark.asyncio
+async def test_execute_menu_action_exit_choice_0():
     """Verify that choice '0' returns False to terminate the menu loop."""
     console = Console(record=True, width=100)
-    should_continue = execute_menu_action("0", console=console)
+    should_continue = await execute_menu_action("0", console=console)
     assert should_continue is False
     output = console.export_text()
     assert "Exiting DeskPilot" in output or "Goodbye" in output
 
 
-def test_execute_menu_action_options_1_to_3():
-    """Verify that choices '1', '2', and '3' provide informative stubs and return True."""
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_1_screenshot_triage():
+    """Verify that choice '1' invokes run_screenshot_triage and records findings."""
     console = Console(record=True, width=100)
+    mock_triage_result = {
+        "items": [],
+        "synced_count": 3,
+        "deleted_count": 3,
+        "errors": [],
+    }
+    with patch(
+        "deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage",
+        new_callable=AsyncMock,
+    ) as mock_agent:
+        mock_agent.return_value = mock_triage_result
+        settings = Settings()
+        state = BootState()
+        should_continue = await execute_menu_action("1", state=state, console=console, settings=settings)
+        assert should_continue is True
+        mock_agent.assert_awaited_once_with(settings)
+        assert state.agent_findings.get("screenshot_triage") == mock_triage_result
+        output = console.export_text()
+        assert "Screenshot" in output
+        assert "Synced: 3" in output or "3" in output
 
-    assert execute_menu_action("1", console=console) is True
-    assert execute_menu_action("2", console=console) is True
-    assert execute_menu_action("3", console=console) is True
 
-    output = console.export_text()
-    assert "Screenshot" in output
-    assert "Downloads" in output
-    assert "Floorp" in output
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_2_downloads_hygiene():
+    """Verify that choice '2' invokes run_downloads_hygiene and records findings."""
+    console = Console(record=True, width=100)
+    mock_downloads_result = {
+        "items": [],
+        "total_bytes_freed": 1048576,
+        "total_files_moved": 2,
+        "errors": [],
+    }
+    with patch(
+        "deskpilot.agent_tasks.downloads_agent.graph.run_downloads_hygiene",
+        new_callable=AsyncMock,
+    ) as mock_agent:
+        mock_agent.return_value = mock_downloads_result
+        settings = Settings()
+        state = BootState()
+        should_continue = await execute_menu_action("2", state=state, console=console, settings=settings)
+        assert should_continue is True
+        mock_agent.assert_awaited_once_with(settings)
+        assert state.agent_findings.get("downloads_hygiene") == mock_downloads_result
+        output = console.export_text()
+        assert "Downloads" in output
+        assert "1.0 MB" in output or "Freed" in output
 
 
-def test_execute_menu_action_option_4_winget_upgrade():
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_3_floorp_bookmarks_preview():
+    """Verify that choice '3' audits Floorp bookmarks and renders user preview."""
+    console = Console(record=True, width=100)
+    mock_bookmarks_result = BookmarkAuditResult(
+        total_bookmarks=45,
+        noisy_count=5,
+        duplicate_groups_count=2,
+        sample_noisy=[{"title": "http://example.com", "url": "http://example.com"}],
+        sample_duplicates=[{"url": "example.com", "count": 2, "bookmarks": []}],
+    )
+    with patch(
+        "deskpilot.cli.audit_floorp_bookmarks",
+        new_callable=AsyncMock,
+    ) as mock_audit:
+        mock_audit.return_value = mock_bookmarks_result
+        settings = Settings()
+        state = BootState()
+        should_continue = await execute_menu_action("3", state=state, console=console, settings=settings)
+        assert should_continue is True
+        mock_audit.assert_awaited_once_with(config=settings.floorp)
+        assert state.floorp_bookmarks == mock_bookmarks_result
+        output = console.export_text()
+        assert "Floorp Bookmarks" in output or "Preview" in output
+        assert "45" in output
+        assert "example.com" in output
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_4_winget_upgrade():
     """Verify that choice '4' attempts to run winget upgrade interactively."""
     console = Console(record=True, width=100)
 
     with patch("deskpilot.cli.subprocess.run") as mock_sub:
-        should_continue = execute_menu_action("4", console=console)
+        should_continue = await execute_menu_action("4", console=console)
         assert should_continue is True
         mock_sub.assert_called_once()
         args = mock_sub.call_args[0][0]
@@ -271,22 +339,24 @@ def test_execute_menu_action_option_4_winget_upgrade():
         assert "upgrade" in args
 
 
-def test_execute_menu_action_option_4_winget_not_found():
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_4_winget_not_found():
     """Verify graceful handling if winget executable is not found."""
     console = Console(record=True, width=100)
 
     with patch("deskpilot.cli.subprocess.run", side_effect=FileNotFoundError):
-        should_continue = execute_menu_action("4", console=console)
+        should_continue = await execute_menu_action("4", console=console)
         assert should_continue is True
         output = console.export_text()
         assert "winget" in output.lower()
         assert "not found" in output.lower()
 
 
-def test_execute_menu_action_invalid_choice():
+@pytest.mark.asyncio
+async def test_execute_menu_action_invalid_choice():
     """Verify that an unrecognized option displays an error and continues loop."""
     console = Console(record=True, width=100)
-    should_continue = execute_menu_action("99", console=console)
+    should_continue = await execute_menu_action("99", console=console)
     assert should_continue is True
     output = console.export_text()
     assert "Invalid option" in output or "invalid" in output.lower()
@@ -383,3 +453,57 @@ def test_no_utf8_bom_in_cli_files():
             assert not content.startswith(b"\xef\xbb\xbf"), (
                 f"File {file_path} contains a UTF-8 BOM header."
             )
+
+
+@pytest.mark.asyncio
+async def test_main_async_startup_flag_runs_boot_and_exits_cleanly():
+    """Verify that --startup flag executes boot sequence and exits immediately without prompting."""
+    settings = Settings()
+    console = Console(record=True, width=120)
+    prompt_mock = MagicMock()
+
+    with (
+        patch("deskpilot.cli.load_settings", return_value=settings),
+        patch("deskpilot.cli.run_phase1_boot_sequence", new_callable=AsyncMock) as mock_boot,
+    ):
+        mock_boot.return_value = BootState()
+        exit_code = await main_async(
+            console=console,
+            settings=settings,
+            prompt_func=prompt_mock,
+            startup=True,
+        )
+
+        assert exit_code == 0
+        mock_boot.assert_awaited_once_with(settings)
+        prompt_mock.assert_not_called()
+        output = console.export_text()
+        assert "DeskPilot" in output
+        assert "Startup mode active" in output or "completed" in output.lower()
+
+
+def test_main_entrypoint_parses_startup_argument():
+    """Verify that main parses --startup argument and passes it to main_async."""
+    with (
+        patch("deskpilot.cli.main_async", new_callable=AsyncMock) as mock_main_async,
+        patch("deskpilot.cli.sys.exit") as mock_exit,
+    ):
+        mock_main_async.return_value = 0
+        main(["--startup"])
+        mock_main_async.assert_awaited_once_with(startup=True)
+        mock_exit.assert_called_once_with(0)
+
+
+def test_lazy_loading_of_langgraph_in_cli():
+    """Verify that importing deskpilot.cli does NOT eagerly import langgraph."""
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "-c",
+        "import sys; import deskpilot.cli; assert 'langgraph' not in sys.modules, 'langgraph eagerly loaded'",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, f"Lazy loading check failed: {res.stderr}"
+
