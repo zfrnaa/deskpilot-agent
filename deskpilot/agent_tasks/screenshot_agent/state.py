@@ -7,6 +7,16 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, model_validator
 
+from deskpilot.config import ScreenshotDestinationsConfig
+
+ScreenshotClassification = Literal[
+    "WORK_NOTES",
+    "DUE_DILIGENCE",
+    "BRAINSTORM",
+    "LOCAL_KEEP",
+    "NOTION_NOTE",
+]
+
 
 class ScreenshotItem(BaseModel):
     """Represents a single screenshot image during triage and synchronization."""
@@ -14,7 +24,7 @@ class ScreenshotItem(BaseModel):
     path: Path
     filename: str = ""
     title: str = ""
-    classification: Literal["NOTION_NOTE", "LOCAL_KEEP"] = "LOCAL_KEEP"
+    classification: ScreenshotClassification = "LOCAL_KEEP"
     cluster_tag: str = "General"
     rationale: str = ""
     is_synced: bool = False
@@ -41,6 +51,9 @@ class ScreenshotAgentState(TypedDict, total=False):
     errors: list[str]
     auto_approve: bool
     delete_synced_local: bool
+    destinations: ScreenshotDestinationsConfig
+    parent_page_id: str
+    database_id: str
 
 
 def create_initial_state(
@@ -48,9 +61,10 @@ def create_initial_state(
     max_images: int = 50,
     auto_approve: bool = False,
     delete_synced_local: bool = True,
+    destinations: ScreenshotDestinationsConfig | None = None,
 ) -> ScreenshotAgentState:
     """Create a fully initialized ScreenshotAgentState dictionary."""
-    return {
+    state: ScreenshotAgentState = {
         "screenshots_dir": screenshots_dir,
         "max_images": max_images,
         "items": [],
@@ -62,3 +76,6 @@ def create_initial_state(
         "auto_approve": auto_approve,
         "delete_synced_local": delete_synced_local,
     }
+    if destinations is not None:
+        state["destinations"] = destinations
+    return state

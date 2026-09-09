@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from PIL import Image
 
-from deskpilot.config import NotionConfig, ScreenshotsConfig, Settings
+from deskpilot.config import NotionConfig, ScreenshotDestinationsConfig, ScreenshotsConfig, Settings
 from deskpilot.agent_tasks.screenshot_agent.graph import (
     build_screenshot_triage_graph,
     cleanup_synced,
@@ -22,6 +22,7 @@ from deskpilot.agent_tasks.screenshot_agent.graph import (
 )
 from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
     cleanup_synced_files,
+    introspect_database_schema,
     sync_approved_items,
     sync_screenshot_to_notion,
 )
@@ -418,4 +419,239 @@ def test_lazy_loading_of_langgraph_and_llm_libraries():
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, f"Lazy loading check failed: {result.stderr}"
+
+
+def test_introspect_worknote_database_schema_and_dynamic_mapping(tmp_path: Path):
+    """Verify introspecting WorkNote database schema dynamically maps title, select, and date properties."""
+    img_path = _create_dummy_image(tmp_path / "work_arch.png")
+    item = ScreenshotItem(
+        path=img_path,
+        title="Distributed Architecture Flow",
+        classification="WORK_NOTES",
+        cluster_tag="Engineering",
+        rationale="System design chart",
+    )
+
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_work_notes_123",
+        "properties": {
+            "Topic": {"id": "title", "name": "Topic", "type": "title", "title": {}},
+            "Area": {"id": "area_id", "name": "Area", "type": "select", "select": {}},
+            "Created": {"id": "date_id", "name": "Created", "type": "date", "date": {}},
+        },
+    }
+    mock_client.pages.create.return_value = {"id": "page_work_001"}
+
+    # Test standalone schema introspection
+    schema = introspect_database_schema(mock_client, "db_work_notes_123")
+    assert schema["title_prop"] == "Topic"
+    assert schema["tag_prop"] == "Area"
+    assert schema["tag_type"] == "select"
+    assert schema["date_prop"] == "Created"
+
+    destinations = ScreenshotDestinationsConfig(work_notes_database_id="db_work_notes_123")
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    mock_client.databases.retrieve.assert_called_with(database_id="db_work_notes_123")
+    mock_client.pages.create.assert_called_once()
+    create_kwargs = mock_client.pages.create.call_args[1]
+    assert create_kwargs["parent"] == {"database_id": "db_work_notes_123"}
+    props = create_kwargs["properties"]
+    assert "Topic" in props
+    assert props["Topic"]["title"][0]["text"]["content"] == "Distributed Architecture Flow"
+    assert "Area" in props
+    assert props["Area"]["select"]["name"] == "Engineering"
+    assert "Created" in props
+    assert "date" in props["Created"]
+
+
+def test_introspect_worknote_database_schema_with_multiselect_tags(tmp_path: Path):
+    """Verify dynamic mapping when database uses multi_select for tags."""
+    img_path = _create_dummy_image(tmp_path / "work_multi.png")
+    item = ScreenshotItem(
+        path=img_path,
+        title="Tag Test",
+        classification="WORK_NOTES",
+        cluster_tag="DevOps",
+    )
+
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_work_tags",
+        "properties": {
+            "Name": {"id": "title", "type": "title", "title": {}},
+            "Tags": {"id": "tag_id", "type": "multi_select", "multi_select": {}},
+        },
+    }
+    mock_client.pages.create.return_value = {"id": "page_tag_002"}
+
+    destinations = ScreenshotDestinationsConfig(work_notes_database_id="db_work_tags")
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    props = mock_client.pages.create.call_args[1]["properties"]
+    assert "Tags" in props
+    assert props["Tags"]["multi_select"][0]["name"] == "DevOps"
+
+
+def test_multi_destination_routing_to_due_diligence_page(tmp_path: Path):
+    """Verify DUE_DILIGENCE classification routes to due_diligence_page_id via blocks.children.append."""
+    img_path = _create_dummy_image(tmp_path / "dd_survey.png")
+    item = ScreenshotItem(
+        path=img_path,
+        title="Vendor Security Assessment",
+        classification="DUE_DILIGENCE",
+        cluster_tag="Security",
+        rationale="SOC2 questionnaire table",
+    )
+
+    mock_client = MagicMock()
+    mock_client.blocks.children.append.return_value = {"results": []}
+
+    destinations = ScreenshotDestinationsConfig(due_diligence_page_id="page_dd_999")
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    mock_client.blocks.children.append.assert_called_once()
+    call_args = mock_client.blocks.children.append.call_args[1]
+    assert call_args["block_id"] == "page_dd_999"
+    children = call_args["children"]
+    assert any(b.get("type") == "callout" for b in children)
+    callout = next(b for b in children if b.get("type") == "callout")
+    callout_text = callout["callout"]["rich_text"][0]["text"]["content"]
+    assert "Vendor Security Assessment" in callout_text
+    assert "SOC2 questionnaire table" in callout_text
+
+
+def test_multi_destination_routing_to_brainstorm_page(tmp_path: Path):
+    """Verify BRAINSTORM classification routes to brainstorm_page_id via blocks.children.append."""
+    img_path = _create_dummy_image(tmp_path / "brainstorm_sketch.png")
+    item = ScreenshotItem(
+        path=img_path,
+        title="Q3 Roadmap Mindmap",
+        classification="BRAINSTORM",
+        cluster_tag="Ideation",
+        rationale="Whiteboard brainstorm diagram",
+    )
+
+    mock_client = MagicMock()
+    mock_client.blocks.children.append.return_value = {"results": []}
+
+    destinations = ScreenshotDestinationsConfig(brainstorm_page_id="page_brainstorm_888")
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    mock_client.blocks.children.append.assert_called_once()
+    call_args = mock_client.blocks.children.append.call_args[1]
+    assert call_args["block_id"] == "page_brainstorm_888"
+    children = call_args["children"]
+    assert any(b.get("type") == "callout" for b in children)
+    callout = next(b for b in children if b.get("type") == "callout")
+    callout_text = callout["callout"]["rich_text"][0]["text"]["content"]
+    assert "Q3 Roadmap Mindmap" in callout_text
+    assert "Whiteboard brainstorm diagram" in callout_text
+
+
+def test_multi_destination_preserving_local_keep_files(tmp_path: Path):
+    """Verify LOCAL_KEEP classification is never synced and preserved locally."""
+    img_path = _create_dummy_image(tmp_path / "random_desktop.png")
+    item = ScreenshotItem(
+        path=img_path,
+        title="Desktop Wallpaper",
+        classification="LOCAL_KEEP",
+        cluster_tag="Personal",
+    )
+
+    mock_client = MagicMock()
+    destinations = ScreenshotDestinationsConfig(
+        work_notes_database_id="db_123",
+        due_diligence_page_id="page_dd_123",
+        brainstorm_page_id="page_bs_123",
+    )
+
+    synced_count, errors = sync_approved_items(
+        items=[item],
+        approved_cluster_keys=["Personal"],
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert synced_count == 0
+    assert item.is_synced is False
+    mock_client.pages.create.assert_not_called()
+    mock_client.blocks.children.append.assert_not_called()
+
+    deleted_count, clean_errors = cleanup_synced_files([item], delete_synced_local=True)
+    assert deleted_count == 0
+    assert img_path.exists()
+    assert item.deleted_locally is False
+
+
+def test_unconfigured_destination_safety_does_not_delete_file(tmp_path: Path):
+    """CRITICAL SAFETY TEST: If destination ID for category is unconfigured, do not sync and never delete."""
+    file_work = _create_dummy_image(tmp_path / "work.png")
+    file_dd = _create_dummy_image(tmp_path / "dd.png")
+    file_bs = _create_dummy_image(tmp_path / "bs.png")
+
+    item_work = ScreenshotItem(path=file_work, classification="WORK_NOTES", cluster_tag="Work")
+    item_dd = ScreenshotItem(path=file_dd, classification="DUE_DILIGENCE", cluster_tag="Audits")
+    item_bs = ScreenshotItem(path=file_bs, classification="BRAINSTORM", cluster_tag="Ideas")
+
+    mock_client = MagicMock()
+    # Empty destinations config
+    destinations = ScreenshotDestinationsConfig(
+        work_notes_database_id="",
+        due_diligence_page_id="",
+        brainstorm_page_id="",
+    )
+
+    synced_count, errors = sync_approved_items(
+        items=[item_work, item_dd, item_bs],
+        approved_cluster_keys=["Work", "Audits", "Ideas"],
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert synced_count == 0
+    assert item_work.is_synced is False
+    assert item_dd.is_synced is False
+    assert item_bs.is_synced is False
+
+    assert len(errors) == 3
+    assert any("Destination ID not configured for category WORK_NOTES" in e for e in errors)
+    assert any("Destination ID not configured for category DUE_DILIGENCE" in e for e in errors)
+    assert any("Destination ID not configured for category BRAINSTORM" in e for e in errors)
+
+    # Attempt local cleanup
+    deleted_count, clean_errors = cleanup_synced_files(
+        [item_work, item_dd, item_bs],
+        delete_synced_local=True,
+    )
+    assert deleted_count == 0
+    assert file_work.exists()
+    assert file_dd.exists()
+    assert file_bs.exists()
+
 

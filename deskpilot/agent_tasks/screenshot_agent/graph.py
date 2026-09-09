@@ -10,6 +10,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
+    SYNCABLE_CLASSIFICATIONS,
     cleanup_synced_files,
     sync_approved_items,
 )
@@ -22,7 +23,7 @@ from deskpilot.agent_tasks.screenshot_agent.vision import (
     get_default_vision_llm,
     triage_screenshots,
 )
-from deskpilot.config import Settings
+from deskpilot.config import ScreenshotDestinationsConfig, Settings
 
 
 def scan_screenshots(state: ScreenshotAgentState) -> dict[str, Any]:
@@ -93,11 +94,11 @@ def human_review_node(
         return {"approved_cluster_keys": approved}
 
     if auto_approve:
-        # In automated mode, approve any cluster containing at least one NOTION_NOTE item
+        # In automated mode, approve any cluster containing at least one syncable item
         approved = [
             tag
             for tag, group in clusters.items()
-            if any(item.classification == "NOTION_NOTE" for item in group)
+            if any(item.classification in SYNCABLE_CLASSIFICATIONS for item in group)
         ]
         return {"approved_cluster_keys": approved}
 
@@ -111,12 +112,12 @@ def human_review_node(
         table = Table(title="[bold cyan]Screenshot Triage Clusters[/bold cyan]")
         table.add_column("Cluster Tag", style="cyan", width=20)
         table.add_column("Total Items", justify="right", style="green", width=12)
-        table.add_column("Notion Notes", justify="right", style="yellow", width=12)
+        table.add_column("Notion Syncable", justify="right", style="yellow", width=12)
         table.add_column("Keep Local", justify="right", style="dim", width=12)
 
         has_notes = False
         for tag, group in clusters.items():
-            notes = sum(1 for i in group if i.classification == "NOTION_NOTE")
+            notes = sum(1 for i in group if i.classification in SYNCABLE_CLASSIFICATIONS)
             keeps = len(group) - notes
             if notes > 0:
                 has_notes = True
@@ -125,16 +126,16 @@ def human_review_node(
         console.print(table)
 
         if not has_notes:
-            console.print("[dim]No items classified as NOTION_NOTE. Nothing to sync.[/dim]")
+            console.print("[dim]No items classified for Notion sync. Nothing to sync.[/dim]")
             return {"approved_cluster_keys": []}
 
         if sys.stdin.isatty():
-            choice = input("Approve syncing all NOTION_NOTE clusters to Notion? [y/N]: ").strip().lower()
+            choice = input("Approve syncing all Notion clusters? [y/N]: ").strip().lower()
             if choice in {"y", "yes"}:
                 approved_clusters = [
                     tag
                     for tag, group in clusters.items()
-                    if any(item.classification == "NOTION_NOTE" for item in group)
+                    if any(item.classification in SYNCABLE_CLASSIFICATIONS for item in group)
                 ]
     except Exception:
         approved_clusters = []
@@ -147,16 +148,19 @@ def notion_sync(
     notion_client: Any = None,
     parent_page_id: str = "",
     database_id: str = "",
+    destinations: ScreenshotDestinationsConfig | None = None,
 ) -> dict[str, Any]:
-    """Synchronize approved NOTION_NOTE screenshots to Notion."""
+    """Synchronize approved screenshots to Notion destinations."""
     items = state.get("items", [])
     approved = state.get("approved_cluster_keys", [])
+    dests = state.get("destinations", destinations)
     synced_count, sync_errors = sync_approved_items(
         items=items,
         approved_cluster_keys=approved,
         notion_client=notion_client,
         parent_page_id=parent_page_id,
         database_id=database_id,
+        destinations=dests,
     )
     current_errors = list(state.get("errors", [])) + sync_errors
     return {
@@ -190,6 +194,7 @@ def build_screenshot_triage_graph(
     notion_client: Any = None,
     parent_page_id: str = "",
     database_id: str = "",
+    destinations: ScreenshotDestinationsConfig | None = None,
     delete_synced_local: bool = True,
     auto_approve: bool = False,
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
@@ -214,11 +219,13 @@ def build_screenshot_triage_graph(
     def _sync(state: ScreenshotAgentState) -> dict[str, Any]:
         p_id = state.get("parent_page_id", parent_page_id)
         db_id = state.get("database_id", database_id)
+        dests = state.get("destinations", destinations)
         return notion_sync(
             state,
             notion_client=notion_client,
             parent_page_id=p_id,
             database_id=db_id,
+            destinations=dests,
         )
 
     def _clean(state: ScreenshotAgentState) -> dict[str, Any]:
@@ -263,7 +270,8 @@ async def run_screenshot_triage(
         llm=llm,
         notion_client=notion_client,
         parent_page_id=settings.notion.parent_page_id,
-        database_id="",
+        database_id=settings.notion.screenshot_destinations.work_notes_database_id,
+        destinations=settings.notion.screenshot_destinations,
         delete_synced_local=settings.screenshots.delete_synced_local,
         auto_approve=auto_approve,
         review_func=review_func,
@@ -274,6 +282,7 @@ async def run_screenshot_triage(
         max_images=50,
         auto_approve=auto_approve,
         delete_synced_local=settings.screenshots.delete_synced_local,
+        destinations=settings.notion.screenshot_destinations,
     )
 
     return await graph.ainvoke(initial_state)

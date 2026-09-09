@@ -46,8 +46,8 @@ def classify_screenshot(
 ) -> ScreenshotItem:
     """Classify a single screenshot using the vision model or mock callable.
 
-    Categorizes the screenshot into NOTION_NOTE vs LOCAL_KEEP, extracts a concise title,
-    cluster tag, and rationale. Falls back to LOCAL_KEEP on any error.
+    Categorizes the screenshot into WORK_NOTES, DUE_DILIGENCE, BRAINSTORM, or LOCAL_KEEP,
+    extracts a concise title, cluster tag, and rationale. Falls back to LOCAL_KEEP on any error.
     """
     if llm is None:
         llm = get_default_vision_llm()
@@ -57,6 +57,8 @@ def classify_screenshot(
         item.rationale = "Vision LLM not configured (missing GEMINI_API_KEY)"
         return item
 
+    valid_classifications = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "LOCAL_KEEP", "NOTION_NOTE"}
+
     # Direct callable support for custom functions or test mocks
     if callable(llm) and not hasattr(llm, "invoke"):
         try:
@@ -64,7 +66,9 @@ def classify_screenshot(
             if isinstance(res, ScreenshotItem):
                 return res
             if isinstance(res, dict):
-                item.classification = res.get("classification", item.classification)
+                cls_val = res.get("classification", item.classification)
+                if cls_val in valid_classifications:
+                    item.classification = cls_val
                 item.title = res.get("title", item.title)
                 item.cluster_tag = res.get("cluster_tag", item.cluster_tag)
                 item.rationale = res.get("rationale", item.rationale)
@@ -84,14 +88,17 @@ def classify_screenshot(
 
             prompt = (
                 "You are an AI assistant triaging Windows desktop screenshots. Analyze this screenshot.\n"
-                "Determine whether this image should be saved to Notion as a note or kept locally:\n"
-                "- NOTION_NOTE: Useful reference material, diagrams, architecture charts, receipts/invoices, "
+                "Determine the appropriate classification destination for this image:\n"
+                "- WORK_NOTES: Useful work reference material, diagrams, architecture charts, receipts/invoices, "
                 "cheat sheets, code snippets, reading notes, articles, or documentation to preserve.\n"
+                "- DUE_DILIGENCE: Due diligence questionnaires, audit forms, compliance checklists, vendor assessments, "
+                "security reviews, or governance sheets.\n"
+                "- BRAINSTORM: Brainstorming sessions, whiteboards, mind maps, ideation notes, draft ideas, or product concepts.\n"
                 "- LOCAL_KEEP: Transient desktop snips, personal photos, accidental captures, video game frames, "
                 "or temporary scratch that should not be sent to Notion.\n\n"
                 "Return a strict JSON object with this format:\n"
                 "{\n"
-                '  "classification": "NOTION_NOTE" or "LOCAL_KEEP",\n'
+                '  "classification": "WORK_NOTES" | "DUE_DILIGENCE" | "BRAINSTORM" | "LOCAL_KEEP",\n'
                 '  "title": "A short, descriptive title (3-7 words)",\n'
                 '  "cluster_tag": "A category tag such as Work, Dev, Receipts, Architecture, Reading, Gaming, Personal",\n'
                 '  "rationale": "One-line rationale explaining the classification"\n'
@@ -136,7 +143,7 @@ def classify_screenshot(
 
             if isinstance(parsed, dict):
                 cls_val = parsed.get("classification", "LOCAL_KEEP")
-                item.classification = "NOTION_NOTE" if cls_val == "NOTION_NOTE" else "LOCAL_KEEP"
+                item.classification = cls_val if cls_val in valid_classifications else "LOCAL_KEEP"
                 item.title = str(parsed.get("title", item.filename))
                 item.cluster_tag = str(parsed.get("cluster_tag", fallback_tag))
                 item.rationale = str(parsed.get("rationale", ""))

@@ -21,6 +21,10 @@ notion:
   token: ''
   parent_page_id: ''
   read_later_database_id: ''
+  screenshot_destinations:
+    work_notes_database_id: ''
+    due_diligence_page_id: ''
+    brainstorm_page_id: ''
 
 screenshots:
   enabled: true

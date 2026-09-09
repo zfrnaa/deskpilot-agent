@@ -6,6 +6,7 @@ from deskpilot.config import (
     FloorpConfig,
     CalendarConfig,
     NotionConfig,
+    ScreenshotDestinationsConfig,
     ScreenshotsConfig,
     DownloadsConfig,
     WingetConfig,
@@ -36,6 +37,10 @@ def test_default_config_models():
     assert notion_cfg.token == ""
     assert notion_cfg.parent_page_id == ""
     assert notion_cfg.read_later_database_id == ""
+    assert isinstance(notion_cfg.screenshot_destinations, ScreenshotDestinationsConfig)
+    assert notion_cfg.screenshot_destinations.work_notes_database_id == ""
+    assert notion_cfg.screenshot_destinations.due_diligence_page_id == ""
+    assert notion_cfg.screenshot_destinations.brainstorm_page_id == ""
 
     screenshots_cfg = ScreenshotsConfig()
     assert screenshots_cfg.enabled is True
@@ -72,6 +77,11 @@ screenshots:
   delete_synced_local: false
 winget:
   timeout_secs: 30
+notion:
+  screenshot_destinations:
+    work_notes_database_id: "db_work_notes_yaml"
+    due_diligence_page_id: "page_dd_yaml"
+    brainstorm_page_id: "page_bs_yaml"
 """,
         encoding="utf-8",
     )
@@ -82,6 +92,9 @@ winget:
     assert settings.floorp.enabled is False
     assert settings.screenshots.delete_synced_local is False
     assert settings.winget.timeout_secs == 30
+    assert settings.notion.screenshot_destinations.work_notes_database_id == "db_work_notes_yaml"
+    assert settings.notion.screenshot_destinations.due_diligence_page_id == "page_dd_yaml"
+    assert settings.notion.screenshot_destinations.brainstorm_page_id == "page_bs_yaml"
     # Unoverridden values retain defaults
     assert settings.calendar.enabled is True
 
@@ -90,6 +103,9 @@ def test_settings_env_overrides(monkeypatch):
     monkeypatch.setenv("NOTION_TOKEN", "secret_env_notion_token")
     monkeypatch.setenv("NOTION_PARENT_PAGE_ID", "page_12345")
     monkeypatch.setenv("NOTION_READ_LATER_DATABASE_ID", "db_67890")
+    monkeypatch.setenv("NOTION_WORK_NOTES_DATABASE_ID", "db_work_env")
+    monkeypatch.setenv("NOTION_DUE_DILIGENCE_PAGE_ID", "page_dd_env")
+    monkeypatch.setenv("NOTION_BRAINSTORM_PAGE_ID", "page_bs_env")
     monkeypatch.setenv("GEMINI_API_KEY", "ai_key_abc")
     monkeypatch.setenv("TEMP_CLEANER__MAX_AGE_HOURS", "72")
 
@@ -97,6 +113,9 @@ def test_settings_env_overrides(monkeypatch):
     assert settings.notion.token == "secret_env_notion_token"
     assert settings.notion.parent_page_id == "page_12345"
     assert settings.notion.read_later_database_id == "db_67890"
+    assert settings.notion.screenshot_destinations.work_notes_database_id == "db_work_env"
+    assert settings.notion.screenshot_destinations.due_diligence_page_id == "page_dd_env"
+    assert settings.notion.screenshot_destinations.brainstorm_page_id == "page_bs_env"
     assert settings.gemini_api_key == "ai_key_abc"
     assert settings.temp_cleaner.max_age_hours == 72
 

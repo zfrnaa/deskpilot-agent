@@ -66,6 +66,14 @@ class CalendarConfig(BaseModel):
         return self.token_path.expanduser().resolve()
 
 
+class ScreenshotDestinationsConfig(BaseModel):
+    """Configuration for Notion screenshot multi-destination routing targets."""
+
+    work_notes_database_id: str = ""
+    due_diligence_page_id: str = ""
+    brainstorm_page_id: str = ""
+
+
 class NotionConfig(BaseModel):
     """Configuration for Notion integrations (screenshots & read-later)."""
 
@@ -73,6 +81,9 @@ class NotionConfig(BaseModel):
     token: str = ""
     parent_page_id: str = ""
     read_later_database_id: str = ""
+    screenshot_destinations: ScreenshotDestinationsConfig = Field(
+        default_factory=ScreenshotDestinationsConfig
+    )
 
 
 class ScreenshotsConfig(BaseModel):
@@ -136,6 +147,21 @@ class MappedSettingsSource(PydanticBaseSettingsSource):
                 notion[nested] = data[flat]
             if nested in notion and flat not in data:
                 data[flat] = notion[nested]
+
+        destinations = notion.setdefault("screenshot_destinations", {})
+        if not isinstance(destinations, dict):
+            destinations = {}
+            notion["screenshot_destinations"] = destinations
+        for flat, dest_key in [
+            ("notion_work_notes_database_id", "work_notes_database_id"),
+            ("notion_due_diligence_page_id", "due_diligence_page_id"),
+            ("notion_brainstorm_page_id", "brainstorm_page_id"),
+        ]:
+            if flat in data and dest_key not in destinations:
+                destinations[dest_key] = data[flat]
+            if dest_key in destinations and flat not in data:
+                data[flat] = destinations[dest_key]
+
         return data
 
 
@@ -167,6 +193,9 @@ class Settings(BaseSettings):
     notion_token: str = ""
     notion_parent_page_id: str = ""
     notion_read_later_database_id: str = ""
+    notion_work_notes_database_id: str = ""
+    notion_due_diligence_page_id: str = ""
+    notion_brainstorm_page_id: str = ""
 
     @classmethod
     def settings_customise_sources(
@@ -217,6 +246,36 @@ class Settings(BaseSettings):
                 self.notion.read_later_database_id = os.getenv("NOTION_READ_LATER_DATABASE_ID", "")
         if not self.notion_read_later_database_id and self.notion.read_later_database_id:
             self.notion_read_later_database_id = self.notion.read_later_database_id
+
+        if not self.notion.screenshot_destinations.work_notes_database_id:
+            if self.notion_work_notes_database_id:
+                self.notion.screenshot_destinations.work_notes_database_id = self.notion_work_notes_database_id
+            elif os.getenv("NOTION_WORK_NOTES_DATABASE_ID"):
+                self.notion.screenshot_destinations.work_notes_database_id = os.getenv(
+                    "NOTION_WORK_NOTES_DATABASE_ID", ""
+                )
+        if not self.notion_work_notes_database_id and self.notion.screenshot_destinations.work_notes_database_id:
+            self.notion_work_notes_database_id = self.notion.screenshot_destinations.work_notes_database_id
+
+        if not self.notion.screenshot_destinations.due_diligence_page_id:
+            if self.notion_due_diligence_page_id:
+                self.notion.screenshot_destinations.due_diligence_page_id = self.notion_due_diligence_page_id
+            elif os.getenv("NOTION_DUE_DILIGENCE_PAGE_ID"):
+                self.notion.screenshot_destinations.due_diligence_page_id = os.getenv(
+                    "NOTION_DUE_DILIGENCE_PAGE_ID", ""
+                )
+        if not self.notion_due_diligence_page_id and self.notion.screenshot_destinations.due_diligence_page_id:
+            self.notion_due_diligence_page_id = self.notion.screenshot_destinations.due_diligence_page_id
+
+        if not self.notion.screenshot_destinations.brainstorm_page_id:
+            if self.notion_brainstorm_page_id:
+                self.notion.screenshot_destinations.brainstorm_page_id = self.notion_brainstorm_page_id
+            elif os.getenv("NOTION_BRAINSTORM_PAGE_ID"):
+                self.notion.screenshot_destinations.brainstorm_page_id = os.getenv(
+                    "NOTION_BRAINSTORM_PAGE_ID", ""
+                )
+        if not self.notion_brainstorm_page_id and self.notion.screenshot_destinations.brainstorm_page_id:
+            self.notion_brainstorm_page_id = self.notion.screenshot_destinations.brainstorm_page_id
 
         if not self.gemini_api_key and os.getenv("GEMINI_API_KEY"):
             self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
