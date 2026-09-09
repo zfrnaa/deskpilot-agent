@@ -9,6 +9,11 @@ requires-python = ">=3.11"
 dependencies = [
     "google-api-python-client>=2.200.0",
     "google-auth-oauthlib>=1.4.1",
+    "langchain-core>=1.6.2",
+    "langchain-google-genai>=4.4.0",
+    "langgraph>=1.2.11",
+    "notion-client>=3.1.0",
+    "pillow>=12.3.0",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "pytest>=9.1.1",
