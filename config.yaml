@@ -1,0 +1,37 @@
+# DeskPilot Configuration File
+
+temp_cleaner:
+  enabled: true
+  max_age_hours: 24
+  temp_path: null
+
+floorp:
+  enabled: true
+  profile_path: null
+
+calendar:
+  enabled: true
+  credentials_path: credentials.json
+  token_path: token.json
+  calendar_id: primary
+  max_results: 20
+
+notion:
+  enabled: true
+  token: ''
+  parent_page_id: ''
+  read_later_database_id: ''
+
+screenshots:
+  enabled: true
+  directory: ~/Pictures/Screenshots
+  delete_synced_local: true
+
+downloads:
+  enabled: true
+  directory: ~/Downloads
+  stale_days: 30
+
+winget:
+  enabled: true
+  timeout_secs: 15
