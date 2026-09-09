@@ -38,6 +38,7 @@ def test_register_startup_script_contains_key_elements():
     assert "deskpilot" in content
     assert "StartupFlag" in content or "startup" in content.lower()
     assert "ScheduledTask" in content or "schtasks" in content
+    assert "--directory" in content
 
 
 def test_unregister_startup_script_contains_key_elements():

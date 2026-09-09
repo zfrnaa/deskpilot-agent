@@ -263,7 +263,7 @@ async def run_screenshot_triage(
         llm=llm,
         notion_client=notion_client,
         parent_page_id=settings.notion.parent_page_id,
-        database_id=settings.notion.read_later_database_id,
+        database_id="",
         delete_synced_local=settings.screenshots.delete_synced_local,
         auto_approve=auto_approve,
         review_func=review_func,

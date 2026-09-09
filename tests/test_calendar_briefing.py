@@ -213,19 +213,74 @@ async def test_fetch_today_agenda_missing_credentials_and_token(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_fetch_today_agenda_missing_token_with_credentials_present(tmp_path: Path) -> None:
-    """Verify graceful degradation when credentials exist but OAuth token has not been generated."""
+    """Verify graceful degradation when credentials exist but OAuth token has not been generated and non-interactive."""
     creds_file = tmp_path / "credentials.json"
     creds_file.write_text('{"installed": {"client_id": "test"}}', encoding="utf-8")
     missing_token = tmp_path / "token.json"
     config = CalendarConfig(credentials_path=creds_file, token_path=missing_token)
 
-    result = await fetch_today_agenda(config=config)
+    result = await fetch_today_agenda(config=config, allow_interactive=False)
 
     assert result.is_configured is False
     assert result.events == []
     assert result.total_count == 0
     assert result.error is not None
     assert "token" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_fetch_today_agenda_interactive_oauth_success(tmp_path: Path) -> None:
+    """Verify interactive OAuth flow triggers when token is missing and interactive mode is enabled."""
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text('{"installed": {"client_id": "test"}}', encoding="utf-8")
+    token_file = tmp_path / "token.json"
+    config = CalendarConfig(credentials_path=creds_file, token_path=token_file)
+
+    mock_flow = MagicMock()
+    mock_creds = MagicMock()
+    mock_creds.valid = True
+    mock_creds.to_json.return_value = '{"token": "new_oauth_token"}'
+    mock_flow.run_local_server.return_value = mock_creds
+
+    mock_service = MagicMock()
+    mock_events = MagicMock()
+    mock_service.events.return_value = mock_events
+    mock_events.list.return_value.execute.return_value = {"items": []}
+
+    with patch(
+        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+        return_value=mock_flow,
+    ) as mock_flow_factory:
+        with patch("deskpilot.boot_tasks.calendar_briefing.build", return_value=mock_service) as mock_build:
+            result = await fetch_today_agenda(config=config, allow_interactive=True)
+
+            assert result.is_configured is True
+            assert result.error is None
+            mock_flow_factory.assert_called_once_with(str(creds_file), scopes=CALENDAR_SCOPES)
+            mock_flow.run_local_server.assert_called_once_with(port=0)
+            mock_build.assert_called_once_with("calendar", "v3", credentials=mock_creds, static_discovery=False)
+            assert token_file.exists()
+            assert token_file.read_text(encoding="utf-8") == '{"token": "new_oauth_token"}'
+
+
+@pytest.mark.asyncio
+async def test_fetch_today_agenda_interactive_oauth_failure(tmp_path: Path) -> None:
+    """Verify interactive OAuth failure degrades gracefully without crashing."""
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text('{"installed": {"client_id": "test"}}', encoding="utf-8")
+    token_file = tmp_path / "token.json"
+    config = CalendarConfig(credentials_path=creds_file, token_path=token_file)
+
+    with patch(
+        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+        side_effect=RuntimeError("Browser failed to launch"),
+    ):
+        result = await fetch_today_agenda(config=config, allow_interactive=True)
+
+        assert result.is_configured is False
+        assert result.events == []
+        assert result.error is not None
+        assert "Browser failed to launch" in result.error or "OAuth" in result.error
 
 
 @pytest.mark.asyncio

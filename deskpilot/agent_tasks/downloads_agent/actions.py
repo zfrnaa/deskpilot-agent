@@ -15,7 +15,7 @@ from deskpilot.agent_tasks.downloads_agent.state import (
 
 # Regex matching downloaded duplicates like "filename (1).ext", "setup (2).exe", "archive (10).zip"
 DUPLICATE_PATTERN = re.compile(
-    r"^.+\s\(\d+\)\.[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)?$",
+    r"^(.*)\s\(\d+\)(\.[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)$",
     re.IGNORECASE,
 )
 
@@ -134,12 +134,23 @@ def categorize_item(
     installer_max_age_days: int = 30,
 ) -> DownloadItem:
     """Classify a DownloadItem and propose a hygiene action based on rules."""
-    # 1. Check duplicate naming convention first
-    if DUPLICATE_PATTERN.match(item.filename):
-        item.category = DownloadFileCategory.DUPLICATE
-        item.proposed_action = ProposedAction.DELETE
-        item.rationale = f"Duplicate download pattern: '{item.filename}'"
-        return item
+    # 1. Check duplicate naming convention first (guard: base file must exist in directory)
+    dup_match = DUPLICATE_PATTERN.match(item.filename)
+    if dup_match:
+        base_filename = f"{dup_match.group(1)}{dup_match.group(2)}"
+        base_path = item.path.parent / base_filename
+        base_exists = base_path.exists()
+        if not base_exists and item.path.parent.is_dir():
+            base_lower = base_filename.lower()
+            try:
+                base_exists = any(entry.name.lower() == base_lower for entry in item.path.parent.iterdir())
+            except OSError:
+                pass
+        if base_exists:
+            item.category = DownloadFileCategory.DUPLICATE
+            item.proposed_action = ProposedAction.DELETE
+            item.rationale = f"Duplicate download pattern: '{item.filename}' (original '{base_filename}' exists)"
+            return item
 
     # 2. Match extensions
     lower_name = item.filename.lower()

@@ -91,7 +91,7 @@ if ($uvCommand) {
 Write-Host "Using uv executable: $uvPath" -ForegroundColor Cyan
 
 # 3. Construct arguments
-$cliArgs = "run deskpilot"
+$cliArgs = "run --directory `"$WorkingDirectory`" deskpilot"
 if ($StartupFlag) {
     $cliArgs += " --startup"
 }

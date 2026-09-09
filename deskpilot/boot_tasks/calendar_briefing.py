@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, datetime, time
+import sys
 from typing import Any
 
 from google.auth.transport.requests import Request
@@ -43,6 +44,7 @@ def _fetch_agenda_sync(
     config: CalendarConfig | None = None,
     service: Any = None,
     target_date: date | None = None,
+    allow_interactive: bool | None = None,
 ) -> CalendarAgendaResult:
     """Synchronously retrieve and normalize today's calendar agenda."""
     if config is None:
@@ -64,6 +66,7 @@ def _fetch_agenda_sync(
         token_path = config.get_resolved_token_path()
         creds_path = config.get_resolved_credentials_path()
 
+        creds = None
         if not token_path.exists():
             if not creds_path.exists():
                 return CalendarAgendaResult(
@@ -73,24 +76,50 @@ def _fetch_agenda_sync(
                     is_configured=False,
                     error=f"Google Calendar credentials not found at {creds_path} and token not found at {token_path}",
                 )
-            return CalendarAgendaResult(
-                events=[],
-                total_count=0,
-                date_str=today_str,
-                is_configured=False,
-                error=f"Google Calendar token not found at {token_path}. Run OAuth authorization flow to generate token.",
-            )
 
-        try:
-            creds = Credentials.from_authorized_user_file(str(token_path), scopes=CALENDAR_SCOPES)
-        except Exception as e:
-            return CalendarAgendaResult(
-                events=[],
-                total_count=0,
-                date_str=today_str,
-                is_configured=False,
-                error=f"Failed to load Google Calendar token from {token_path}: {e}",
+            is_interactive = (
+                allow_interactive
+                if allow_interactive is not None
+                else (sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty())
             )
+            if is_interactive:
+                try:
+                    from google_auth_oauthlib.flow import InstalledAppFlow
+
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        str(creds_path), scopes=CALENDAR_SCOPES
+                    )
+                    creds = flow.run_local_server(port=0)
+                    token_path.parent.mkdir(parents=True, exist_ok=True)
+                    token_path.write_text(creds.to_json(), encoding="utf-8")
+                except Exception as e:
+                    return CalendarAgendaResult(
+                        events=[],
+                        total_count=0,
+                        date_str=today_str,
+                        is_configured=False,
+                        error=f"Google Calendar OAuth authorization failed: {e}",
+                    )
+            else:
+                return CalendarAgendaResult(
+                    events=[],
+                    total_count=0,
+                    date_str=today_str,
+                    is_configured=False,
+                    error=f"Google Calendar token not found at {token_path}. Run OAuth authorization flow to generate token.",
+                )
+
+        if creds is None:
+            try:
+                creds = Credentials.from_authorized_user_file(str(token_path), scopes=CALENDAR_SCOPES)
+            except Exception as e:
+                return CalendarAgendaResult(
+                    events=[],
+                    total_count=0,
+                    date_str=today_str,
+                    is_configured=False,
+                    error=f"Failed to load Google Calendar token from {token_path}: {e}",
+                )
 
         if creds and not creds.valid:
             if creds.expired and creds.refresh_token:
@@ -206,6 +235,7 @@ async def fetch_today_agenda(
     config: CalendarConfig | None = None,
     service: Any = None,
     target_date: date | None = None,
+    allow_interactive: bool | None = None,
 ) -> CalendarAgendaResult:
     """Asynchronously fetch today's agenda from Google Calendar.
 
@@ -213,8 +243,9 @@ async def fetch_today_agenda(
         config: Optional CalendarConfig instance.
         service: Optional injected Google Calendar Resource service for testing.
         target_date: Optional target date to fetch agenda for (defaults to today).
+        allow_interactive: Optional flag controlling interactive OAuth authorization flow.
 
     Returns:
         CalendarAgendaResult containing parsed events or graceful unconfigured/error state.
     """
-    return await asyncio.to_thread(_fetch_agenda_sync, config, service, target_date)
+    return await asyncio.to_thread(_fetch_agenda_sync, config, service, target_date, allow_interactive)

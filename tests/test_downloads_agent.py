@@ -152,13 +152,13 @@ def test_stale_installer_detection_and_action_proposal(tmp_path: Path):
 
 
 def test_duplicate_download_detection(tmp_path: Path):
-    """Verify files matching duplicate regex pattern are categorized as DUPLICATE and proposed for DELETE."""
-    dup_names = [
-        "document (1).pdf",
-        "statement (2).csv",
-        "setup (3).exe",
-        "archive (12).zip",
-        "my image (1).png",
+    """Verify files matching duplicate pattern are categorized as DUPLICATE and proposed for DELETE when base file exists."""
+    dup_pairs = [
+        ("document (1).pdf", "document.pdf"),
+        ("statement (2).csv", "statement.csv"),
+        ("setup (3).exe", "setup.exe"),
+        ("archive (12).zip", "archive.zip"),
+        ("my image (1).png", "my image.png"),
     ]
 
     non_dup_names = [
@@ -168,12 +168,16 @@ def test_duplicate_download_detection(tmp_path: Path):
         "(1) prefix.zip",
     ]
 
-    for name in dup_names:
-        p = tmp_path / name
+    for dup_name, base_name in dup_pairs:
+        # Create base file so duplicate is recognized
+        base_p = tmp_path / base_name
+        base_p.write_bytes(b"original")
+
+        p = tmp_path / dup_name
         p.write_bytes(b"content")
-        item = DownloadItem(path=p, filename=name, size_bytes=7, category=DownloadFileCategory.OTHER, age_days=5.0)
+        item = DownloadItem(path=p, filename=dup_name, size_bytes=7, category=DownloadFileCategory.OTHER, age_days=5.0)
         updated = categorize_item(item, installer_max_age_days=30)
-        assert updated.category == DownloadFileCategory.DUPLICATE, f"{name} should be categorized as DUPLICATE"
+        assert updated.category == DownloadFileCategory.DUPLICATE, f"{dup_name} should be categorized as DUPLICATE"
         assert updated.proposed_action == ProposedAction.DELETE
         assert "duplicate" in updated.rationale.lower()
 
@@ -183,6 +187,27 @@ def test_duplicate_download_detection(tmp_path: Path):
         item = DownloadItem(path=p, filename=name, size_bytes=7, category=DownloadFileCategory.OTHER, age_days=5.0)
         updated = categorize_item(item, installer_max_age_days=30)
         assert updated.category != DownloadFileCategory.DUPLICATE, f"{name} should not be DUPLICATE"
+
+
+def test_duplicate_download_not_marked_if_base_file_missing(tmp_path: Path):
+    """Verify files matching duplicate pattern are NOT marked as DUPLICATE/DELETE if base file does not exist."""
+    alone_pdf = tmp_path / "report (1).pdf"
+    alone_pdf.write_bytes(b"content")
+    # Base file "report.pdf" intentionally NOT created
+
+    item = DownloadItem(
+        path=alone_pdf,
+        filename="report (1).pdf",
+        size_bytes=7,
+        category=DownloadFileCategory.OTHER,
+        age_days=5.0,
+    )
+    updated = categorize_item(item, installer_max_age_days=30)
+
+    # Since base file is missing, it should NOT be marked DUPLICATE or proposed for DELETE
+    assert updated.category == DownloadFileCategory.DOCUMENT
+    assert updated.proposed_action == ProposedAction.ARCHIVE
+    assert "duplicate" not in updated.rationale.lower()
 
 
 def test_action_proposal_logic_for_archives_and_documents(tmp_path: Path):
@@ -398,8 +423,8 @@ async def test_end_to_end_graph_execution(tmp_path: Path):
     doc_dup = tmp_path / "report (1).pdf"
     doc_dup.write_bytes(b"dup_content")
 
-    fresh_doc = tmp_path / "statement.pdf"
-    fresh_doc.write_bytes(b"statement_content")
+    fresh_doc = tmp_path / "report.pdf"
+    fresh_doc.write_bytes(b"report_content")
 
     graph = build_downloads_hygiene_graph(auto_approve=True)
 
@@ -418,7 +443,7 @@ async def test_end_to_end_graph_execution(tmp_path: Path):
     assert not stale_exe.exists()
     assert not doc_dup.exists()
     assert not fresh_doc.exists()
-    assert (tmp_path / "Archive" / "statement.pdf").exists()
+    assert (tmp_path / "Archive" / "report.pdf").exists()
 
 
 @pytest.mark.asyncio

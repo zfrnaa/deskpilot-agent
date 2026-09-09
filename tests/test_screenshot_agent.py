@@ -354,7 +354,11 @@ async def test_run_screenshot_triage_orchestration(tmp_path: Path):
 
     settings = Settings(
         screenshots=ScreenshotsConfig(directory=tmp_path, delete_synced_local=True),
-        notion=NotionConfig(token="mock_token", parent_page_id="mock_parent_id"),
+        notion=NotionConfig(
+            token="mock_token",
+            parent_page_id="mock_parent_id",
+            read_later_database_id="mock_read_later_db_id",
+        ),
     )
 
     def mock_vision(item: ScreenshotItem) -> ScreenshotItem:
@@ -376,6 +380,9 @@ async def test_run_screenshot_triage_orchestration(tmp_path: Path):
     assert result_state["synced_count"] == 1
     assert result_state["deleted_count"] == 1
     assert not shot.exists()
+    mock_notion.pages.create.assert_called_once()
+    create_kwargs = mock_notion.pages.create.call_args[1]
+    assert create_kwargs["parent"] == {"page_id": "mock_parent_id"}
 
 
 def test_no_utf8_bom_in_screenshot_agent_files():

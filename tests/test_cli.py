@@ -232,6 +232,7 @@ def test_prompt_action_menu_renders_and_returns_choice():
     assert "[2]" in output and "Downloads Folder Cleanup" in output
     assert "[3]" in output and "Floorp Bookmarks" in output
     assert "[4]" in output and "Upgrade Winget" in output
+    assert "[5]" in output and "Notion Read-Later Digest" in output
     assert "[0]" in output and "Dismiss & Exit" in output
 
 
@@ -350,6 +351,36 @@ async def test_execute_menu_action_option_4_winget_not_found():
         output = console.export_text()
         assert "winget" in output.lower()
         assert "not found" in output.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_5_read_later_digest():
+    """Verify that choice '5' invokes run_read_later_flow and records findings."""
+    console = Console(record=True, width=100)
+    mock_item = MagicMock()
+    mock_item.title = "Sample Read Later Article"
+    mock_rl_result = {
+        "database_id": "db_123",
+        "unread_items": [mock_item],
+        "recommended_item": mock_item,
+        "marked_as_read_id": None,
+        "status_updated": False,
+        "errors": [],
+    }
+    with patch(
+        "deskpilot.agent_tasks.read_later_agent.graph.run_read_later_flow",
+        new_callable=AsyncMock,
+    ) as mock_agent:
+        mock_agent.return_value = mock_rl_result
+        settings = Settings()
+        state = BootState()
+        should_continue = await execute_menu_action("5", state=state, console=console, settings=settings)
+        assert should_continue is True
+        mock_agent.assert_awaited_once_with(settings)
+        assert state.agent_findings.get("read_later_digest") == mock_rl_result
+        output = console.export_text()
+        assert "Read-Later Digest" in output
+        assert "Sample Read Later Article" in output or "Unread: 1" in output
 
 
 @pytest.mark.asyncio

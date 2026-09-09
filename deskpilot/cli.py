@@ -243,9 +243,9 @@ def render_dashboard(state: BootState, console: Console | None = None) -> None:
 def normalize_menu_choice(raw: str) -> str:
     """Normalize input choice by stripping whitespace, BOM markers, and brackets."""
     clean = raw.strip().strip("'\"").strip("\ufeff\xef\xbb\xbf\x00 ")
-    if clean in {"0", "1", "2", "3", "4"}:
+    if clean in {"0", "1", "2", "3", "4", "5"}:
         return clean
-    digits = [ch for ch in clean if ch in "01234"]
+    digits = [ch for ch in clean if ch in "012345"]
     if len(digits) == 1:
         return digits[0]
     return clean
@@ -266,10 +266,11 @@ def prompt_action_menu(
     menu_table.add_row("[2]", "Downloads Folder Cleanup (Smart categorize & delete advice)")
     menu_table.add_row("[3]", "Clean Floorp Bookmarks (Launch floorp bookmark tool or stub)")
     menu_table.add_row("[4]", "Upgrade Winget Packages (Execute interactive winget upgrade)")
+    menu_table.add_row("[5]", "Notion Read-Later Digest (Preview pick & mark read)")
     menu_table.add_row("[0]", "Dismiss & Exit")
 
     c.print(Panel(menu_table, title="[bold green]Action Menu[/bold green]", border_style="green"))
-    return normalize_menu_choice(prompt_func("Select an option [0-4]: "))
+    return normalize_menu_choice(prompt_func("Select an option [0-5]: "))
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -392,8 +393,28 @@ async def execute_menu_action(
         except Exception as e:
             c.print(f"[red]Failed to run winget upgrade: {e}[/red]")
         return True
+    elif normalized_choice == "5":
+        c.print("[cyan]Starting Notion Read-Later Digest Agent...[/cyan]")
+        try:
+            from deskpilot.agent_tasks.read_later_agent.graph import run_read_later_flow
+
+            cfg = settings or load_settings()
+            rl_res = await run_read_later_flow(cfg)
+            if state is not None:
+                state.set_finding("read_later_digest", rl_res)
+
+            unread = len(rl_res.get("unread_items", []))
+            rec = rl_res.get("recommended_item")
+            rec_title = getattr(rec, "title", str(rec)) if rec else "None"
+            errors = rl_res.get("errors", [])
+            c.print(f"[bold green]Read-Later Digest complete:[/bold green] Unread: {unread}, Recommended: {rec_title}")
+            if errors:
+                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+        except Exception as e:
+            c.print(f"[red]Read-Later Digest failed: {e}[/red]")
+        return True
     else:
-        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 4.[/bold red]")
+        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 5.[/bold red]")
         return True
 
 
