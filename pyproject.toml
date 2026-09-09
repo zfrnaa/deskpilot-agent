@@ -17,6 +17,9 @@ dependencies = [
     "rich>=15.0.0",
 ]
 
+[project.scripts]
+deskpilot = "deskpilot.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
