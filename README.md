@@ -18,19 +18,19 @@ flowchart TD
     
     subgraph Phase1["Phase 1: Sub-Second Fast Boot Sequence (asyncio)"]
         CLI --> TH[System %TEMP% Cleaner]
-        CLI --> FA[Floorp Bookmarks Audit places.sqlite]
         CLI --> WU[Winget Package Updates Check]
         CLI --> GC[Google Calendar Today's Agenda]
     end
 
-    Phase1 --> Dashboard[Rich Terminal Dashboard]
+    Phase1 --> Dashboard[3-Panel Rich Terminal Dashboard]
 
     subgraph Phase2["Phase 2: Interactive Action Menu & Intelligent Agents"]
         Dashboard --> Menu{User Action}
-        Menu -->|[1]| STA[Screenshot Triage Agent\nLangGraph + Gemini Vision + Notion]
+        Menu -->|[1]| STA[Screenshot Triage Agent\nLangGraph + Gemini Vision + Notion Multi-Routing]
         Menu -->|[2]| DHA[Downloads Hygiene Agent\nLangGraph + Auto-Archive + Cleaner]
-        Menu -->|[3]| FBP[Floorp Bookmarks Preview\nNoisy URLs + Duplicate Inspector]
-        Menu -->|[4]| WGU[Interactive Winget Package Upgrade]
+        Menu -->|[3]| FBA[Floorp Bookmarks Auditor (On-Demand)\nplaces.sqlite Read-Only Duplicate & Noise Inspector]
+        Menu -->|[4]| WGU[Interactive Winget Package Upgrade\nWith Custom Exclusions]
+        Menu -->|[5]| RLA[Notion Read-Later Digest\nCurated Reading Pick & Status Update]
         Menu -->|[0]| Exit[Dismiss & Exit]
     end
 ```
@@ -41,44 +41,49 @@ flowchart TD
 
 ### Fast Boot Sequence (Phase 1)
 - **Windows `%TEMP%` Cleaner**: Recursively purges temporary files older than 24 hours while safely tolerating locked Windows process handles.
-- **Floorp Bookmark Auditor**: Reads Floorp's `places.sqlite` in read-only immutable mode (`?immutable=1&mode=ro`), detecting noisy tracking parameters and duplicate bookmark groups without browser locking.
-- **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection.
+- **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom package exclusions (e.g. ignoring `AdvancedSystemCare` and `RevoUninstallerPro`).
 - **Google Calendar Agenda**: Fetches your daily schedule, displaying all-day events, meeting times, and Google Meet locations.
 
-### Intelligent On-Demand Agents (Phase 2)
-- **Screenshot Triage Agent (Option 1)**: Scans your Screenshots folder, analyzes images using Google Gemini Vision, categorizes them into smart clusters, and syncs note-worthy screenshots to Notion with strict safety guarantees (only confirmed synced items are cleaned locally).
+### Intelligent On-Demand Agents & Tools (Phase 2)
+- **Screenshot Triage Agent (Option 1)**: Scans your Screenshots folder, analyzes images using Google Gemini Vision, categorizes them into smart clusters, and dynamically routes them to designated Notion targets (WorkNote database with dynamic schema introspection, Due Diligence Questionnaire page, Brainstorm Session page, or Local Keep) with strict safety guarantees (only confirmed synced items are cleaned locally).
 - **Downloads Hygiene Agent (Option 2)**: Classifies downloads into installers, archives, code, documents, media, and images. Automatically proposes deleting stale installers (>30 days old) and archiving unorganized files with user confirmation.
-- **Floorp Bookmarks Preview (Option 3)**: Interactive preview of noisy tracking bookmarks and duplicate groups for browser cleanup.
-- **Notion Read-Later Digest**: Curates daily unread reading recommendations from your Notion reading list, prioritizing critical tags and oldest items.
+- **On-Demand Floorp Bookmarks Auditor (Option 3)**: Decoupled from the boot sequence for sub-second startup; reads Floorp's `places.sqlite` in read-only immutable mode (`?immutable=1&mode=ro`) on demand, detecting noisy tracking parameters (UTMs, referral tags) and duplicate bookmark groups without browser locking.
+- **Interactive Winget Package Upgrade (Option 4)**: Interactive package upgrade CLI helper that automatically respects your configured exclusions (`ignore_packages`).
+- **Notion Read-Later Digest (Option 5)**: Curates daily unread reading recommendations from your Notion reading list ("The Read Later List"), prioritizing critical tags and oldest items with one-click status updates.
 
 ---
 
 ## Terminal Dashboard Preview
 
+DeskPilot launches with a clean **3-panel morning boot dashboard** (System Hygiene, Package Updates, and Today's Agenda):
+
 ```text
 ╭───────────────────────────── DeskPilot Morning Command Center ─────────────────────────────╮
 │                                Wednesday, September 09, 2026 - 09:00 AM                     │
 ╰────────────────────────────────────────────────────────────────────────────────────────────╯
-╭── System Hygiene (%TEMP%) ──╮ ╭── Floorp Bookmarks ─────────╮
-│ Bytes Freed: 15.0 MB        │ │ Total Bookmarks: 120        │
-│ Files Removed: 42           │ │ Noisy URLs (Tracking): 7    │
-│ Dirs Removed: 5             │ │ Duplicate Groups: 2         │
+╭── System Hygiene (%TEMP%) ──╮ ╭── Package Updates (winget) ─╮
+│ Bytes Freed: 15.0 MB        │ │ 2 update(s) available:      │
+│ Files Removed: 42           │ │ • Git (2.43.0 -> 2.44.0)    │
+│ Dirs Removed: 5             │ │ • Neovim (0.9.4 -> 0.10.0)  │
 ╰─────────────────────────────╯ ╰─────────────────────────────╯
-╭── Package Updates (winget) ─╮ ╭── Today's Agenda (Google) ──╮
-│ 2 update(s) available:      │ │ 2 event(s) scheduled:       │
-│ • Git (2.43.0 -> 2.44.0)    │ │ • [09:00 - 09:30] Standup   │
-│ • Neovim (0.9.4 -> 0.10.0)  │ │ • [14:00 - 15:00] Review    │
-╰─────────────────────────────╯ ╰─────────────────────────────╯
+╭── Today's Agenda (Google Calendar) ────────────────────────────────────────────────────────╮
+│ 2 event(s) scheduled (Wednesday, Sep 09):                                                  │
+│ • [09:00 - 09:30] Team Standup (Google Meet)                                               │
+│ • [14:00 - 15:00] Architecture Review (Conf Room A)                                        │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭── Action Menu ─────────────────────────────────────────────────────────────────────────────╮
 │ [1]  Triage Screenshots (Sort to Notion & cleanup)                                          │
 │ [2]  Downloads Folder Cleanup (Smart categorize & delete advice)                           │
 │ [3]  Clean Floorp Bookmarks (Launch floorp bookmark preview)                               │
 │ [4]  Upgrade Winget Packages (Execute interactive winget upgrade)                          │
+│ [5]  Notion Read-Later Digest (Preview pick & mark read)                                   │
 │ [0]  Dismiss & Exit                                                                        │
 ╰────────────────────────────────────────────────────────────────────────────────────────────╯
-Select an option [0-4]: 
+Select an option [0-5]: 
 ```
+
+> **On-Demand Floorp View**: When option `[3]` is selected, Floorp bookmarks audit executes on-demand without slowing down your initial boot. When bookmarks data is present, the dashboard seamlessly expands to a 2x2 grid displaying the Floorp Bookmarks panel alongside System Hygiene, Winget, and Calendar.
 
 ---
 
@@ -138,13 +143,32 @@ uv run deskpilot --startup
 7. On first run, DeskPilot will prompt you once to authorize calendar access in your browser and automatically save `token.json`.
 
 ### 2. Notion API Integration
+DeskPilot connects with Notion to power both the Screenshot Triage Agent and the Read-Later Newsfeed Agent.
+
 1. Visit [Notion My Integrations](https://www.notion.so/profile/integrations).
 2. Click **New integration**, name it `DeskPilot`, and select your workspace.
 3. Copy the **Internal Integration Secret** and paste it into `.env` as `NOTION_TOKEN`.
-4. Open the Notion parent page where you want screenshots or notes stored.
-5. Click **... > Connect to** and select your `DeskPilot` integration.
-6. Copy the Page ID from the URL and set `NOTION_PARENT_PAGE_ID` in `.env`.
-7. (Optional) For the Read-Later Agent, share your Read-Later database with the integration and set `NOTION_READ_LATER_DATABASE_ID`.
+4. Open the target Notion databases or pages you wish to sync with DeskPilot, click **... > Connect to**, and select your `DeskPilot` integration.
+
+#### "The Read Later List" (Read-Later Newsfeed)
+- Connect your reading list database to DeskPilot and set `read_later_database_id` in `config.yaml` (or `NOTION_READ_LATER_DATABASE_ID` in `.env`).
+- Menu Option `[5]` analyzes your unread articles from "The Read Later List", prioritizes high-value tags (e.g., `#critical`, `#architecture`) and oldest entries, presents daily picks in your terminal, and lets you mark them as read in Notion.
+
+#### Multi-Destination Screenshot Routing
+DeskPilot's Screenshot Triage Agent uses Gemini Vision to classify captured images and route them to dedicated Notion destinations:
+- **WorkNote Database** (`work_notes_database_id` / `NOTION_WORK_NOTES_DATABASE_ID`): Receives `WORK_NOTES` screenshots.
+- **Due Diligence Questionnaire Page** (`due_diligence_page_id` / `NOTION_DUE_DILIGENCE_PAGE_ID`): Receives `DUE_DILIGENCE` screenshots, appending formatted callout blocks.
+- **Brainstorm Session Page** (`brainstorm_page_id` / `NOTION_BRAINSTORM_PAGE_ID`): Receives `BRAINSTORM` screenshots, appending formatted callout blocks.
+- **Local Keep (`LOCAL_KEEP`)**: Preserved strictly in local storage without syncing to Notion or deleting.
+- *(Fallback)*: `parent_page_id` / `NOTION_PARENT_PAGE_ID` is retained for backwards compatibility when individual destination IDs are not configured.
+
+#### Dynamic Notion Schema Introspection for WorkNote
+When syncing to the **WorkNote** database, DeskPilot never relies on hardcoded property names. Instead, it dynamically introspects your database schema via `client.databases.retrieve`:
+- **Title Property**: Detects the database title property regardless of whether it is named `Name`, `Title`, or `Topic`.
+- **Category / Tag Property**: Inspects property types for `select` or `multi_select` fields (matching `Tags`, `Category`, `Topic`, `Area`, etc.) and formats the payload with appropriate tag arrays or objects.
+- **Date Property**: Detects `date` fields (matching `Date`, `Created`, `Date Created`, etc.) and automatically assigns the current UTC timestamp.
+- **Content Blocks**: Appends structured Notion child blocks including a heading with the note title, category badge, AI rationale, and source image filename.
+- **Schema Caching**: Results are cached in-memory per run to eliminate redundant Notion API roundtrips.
 
 ### 3. Google Gemini Vision API
 1. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/).
@@ -153,9 +177,19 @@ uv run deskpilot --startup
    GEMINI_API_KEY=AIzaSy...
    ```
 
-### 4. Floorp Browser Bookmarks
+### 4. Floorp Browser Bookmarks (On-Demand)
+- Floorp bookmark auditing is executed **on-demand** via Action Menu option `[3]`, completely decoupled from the boot sequence for sub-second startup speed.
 - DeskPilot automatically searches `%APPDATA%\Floorp\Profiles\*.default-release\places.sqlite`.
-- If using a custom Floorp installation, set `floorp.profile_path` in `config.yaml`.
+- If using a custom Floorp installation or profile, set `floorp.profile_path` in `config.yaml`.
+- The connection uses SQLite's read-only immutable flag (`?immutable=1&mode=ro`), allowing you to audit bookmarks even while Floorp is open without lock contention or write hazards.
+
+### 5. Winget Package Exclusions
+To keep your morning boot dashboard clean and avoid repetitive prompts for software you manage separately or keep pinned, configure `winget.ignore_packages` in `config.yaml`:
+- By default, DeskPilot ignores:
+  - `AdvancedSystemCare`
+  - `RevoUninstallerPro`
+- Exclusions perform case-insensitive substring matching against both package name and package ID (e.g. matching `RevoUninstallerPro` or `IObit.AdvancedSystemCare`).
+- Excluded packages are filtered out from both the morning update notification panel and the interactive winget upgrade helper (Option `[4]`).
 
 ---
 
@@ -197,7 +231,7 @@ temp_cleaner:
   max_age_hours: 24
   temp_path: null     # null defaults to Windows %TEMP%
 
-# Floorp browser bookmark auditor
+# Floorp browser bookmark auditor (on-demand via menu option [3])
 floorp:
   enabled: true
   profile_path: null  # null auto-locates places.sqlite
@@ -214,8 +248,12 @@ calendar:
 notion:
   enabled: true
   token: ''
-  parent_page_id: ''
-  read_later_database_id: ''
+  parent_page_id: ''              # Legacy / fallback parent page
+  read_later_database_id: ''      # "The Read Later List" newsfeed database ID
+  screenshot_destinations:
+    work_notes_database_id: ''    # Database ID for WorkNote (with dynamic schema introspection)
+    due_diligence_page_id: ''     # Page ID for Due Diligence Questionnaire
+    brainstorm_page_id: ''        # Page ID for Brainstorm Session
 
 # Screenshots folder triage
 screenshots:
@@ -229,10 +267,13 @@ downloads:
   directory: ~/Downloads
   stale_days: 30
 
-# Winget package updater
+# Winget package updater & exclusions
 winget:
   enabled: true
   timeout_secs: 15
+  ignore_packages:
+    - AdvancedSystemCare
+    - RevoUninstallerPro
 ```
 
 ### Environment Variables (`.env`)
@@ -241,8 +282,11 @@ Environment variables override settings loaded from `config.yaml`:
 | Variable | Description |
 | :--- | :--- |
 | `NOTION_TOKEN` | Notion Internal Integration Secret |
-| `NOTION_PARENT_PAGE_ID` | Notion Page ID for screenshot notes sync |
-| `NOTION_READ_LATER_DATABASE_ID` | Notion Database ID for Read-Later articles |
+| `NOTION_PARENT_PAGE_ID` | Notion Page ID for screenshot notes sync (fallback) |
+| `NOTION_READ_LATER_DATABASE_ID` | Notion Database ID for "The Read Later List" |
+| `NOTION_WORK_NOTES_DATABASE_ID` | Notion Database ID for "WorkNote" entries (dynamic schema introspection) |
+| `NOTION_DUE_DILIGENCE_PAGE_ID` | Notion Page ID for "Due Diligence Questionnaire" screenshots |
+| `NOTION_BRAINSTORM_PAGE_ID` | Notion Page ID for "Brainstorm Session" screenshots |
 | `GEMINI_API_KEY` | Google Gemini API key for vision classification |
 | `LANGCHAIN_TRACING_V2` | Set to `true` to enable LangSmith workflow tracing |
 | `LANGCHAIN_API_KEY` | LangSmith API Key |
@@ -251,10 +295,11 @@ Environment variables override settings loaded from `config.yaml`:
 
 ## Safety & Privacy Guarantees
 
-- **No Premature Deletion**: The Screenshot Triage Agent **only** removes local screenshots that have been verified as successfully created and confirmed in Notion.
-- **Read-Only SQLite Locking**: The Floorp auditor connects to `places.sqlite` using `immutable=1&mode=ro`. It never locks the database, allowing you to use your browser freely during boot checks.
+- **Multi-Destination Screenshot Routing & Zero Unsynced Deletion**: The Screenshot Triage Agent **only** removes local screenshots that have been verified as successfully created and confirmed in their designated Notion destination (`is_synced == True`). Images classified as `LOCAL_KEEP` or unapproved clusters are strictly preserved locally and never deleted.
+- **Read-Only SQLite Locking**: The Floorp auditor connects to `places.sqlite` using `immutable=1&mode=ro` on demand. It never locks the database, allowing you to use your browser freely during audits.
+- **Winget Exclusion Protection**: Pinned or blacklisted software packages (`AdvancedSystemCare`, `RevoUninstallerPro`) are automatically filtered out from upgrade lists to prevent unwanted bulk modifications.
 - **No Silent Bulk File Destruction**: The Downloads Hygiene Agent analyzes and suggests actions, but **never** deletes or moves files without explicit user approval.
-- **Local First**: All Phase 1 boot checks execute strictly locally on your machine without making external network calls (except for Google Calendar and winget update checks).
+- **Local-First Fast Boot**: All Phase 1 boot checks execute strictly locally on your machine without making heavy network calls or loading LLM libraries.
 
 ---
 
@@ -268,10 +313,15 @@ uv run pytest -v
 
 # Run specific test modules
 uv run pytest tests/test_cli.py -v
-uv run pytest tests/test_startup_scripts.py -v
+uv run pytest tests/test_package_checker.py -v
 uv run pytest tests/test_screenshot_agent.py -v
 uv run pytest tests/test_downloads_agent.py -v
 uv run pytest tests/test_read_later_agent.py -v
+uv run pytest tests/test_system_hygiene.py -v
+uv run pytest tests/test_bookmarks.py -v
+uv run pytest tests/test_calendar_briefing.py -v
+uv run pytest tests/test_startup_scripts.py -v
+uv run pytest tests/test_config.py -v
 ```
 
 ---
