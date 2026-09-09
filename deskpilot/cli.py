@@ -41,20 +41,20 @@ def format_bytes(num_bytes: int) -> str:
 async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     """Concurrently execute all Phase 1 boot tasks and populate BootState.
 
-    Runs system hygiene, Floorp bookmark audit, winget updates check,
+    Runs system hygiene, winget updates check,
     and Google Calendar agenda briefing concurrently using asyncio.gather.
+    Floorp bookmark audit is decoupled from boot and runs on-demand via option [3].
     """
     state = BootState()
 
     results = await asyncio.gather(
         clean_temp_directory(config=settings.temp_cleaner),
-        audit_floorp_bookmarks(config=settings.floorp),
         check_winget_updates(config=settings.winget),
         fetch_today_agenda(config=settings.calendar),
         return_exceptions=True,
     )
 
-    temp_res, floorp_res, winget_res, cal_res = results
+    temp_res, winget_res, cal_res = results
 
     # 1. System hygiene
     if isinstance(temp_res, Exception):
@@ -62,19 +62,13 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     else:
         state.system_hygiene = temp_res
 
-    # 2. Floorp bookmarks
-    if isinstance(floorp_res, Exception):
-        state.add_error(f"Floorp bookmark audit failed: {floorp_res}")
-    else:
-        state.floorp_bookmarks = floorp_res
-
-    # 3. Winget updates
+    # 2. Winget updates
     if isinstance(winget_res, Exception):
         state.add_error(f"Winget updates check failed: {winget_res}")
     else:
         state.winget_updates = winget_res
 
-    # 4. Google Calendar agenda
+    # 3. Google Calendar agenda
     if isinstance(cal_res, Exception):
         state.add_error(f"Calendar briefing failed: {cal_res}")
     else:
@@ -214,19 +208,27 @@ def render_dashboard(state: BootState, console: Console | None = None) -> None:
     )
     c.print(header_panel)
 
-    # 2x2 grid of boot task panels
-    grid = Table.grid(expand=True, padding=(0, 1))
-    grid.add_column(ratio=1)
-    grid.add_column(ratio=1)
-
     hygiene_panel = _create_hygiene_panel(state)
-    bookmarks_panel = _create_bookmarks_panel(state)
     winget_panel = _create_winget_panel(state)
     calendar_panel = _create_calendar_panel(state)
 
-    grid.add_row(hygiene_panel, bookmarks_panel)
-    grid.add_row(winget_panel, calendar_panel)
-    c.print(grid)
+    if state.bookmarks is not None:
+        # If bookmarks have been audited (e.g. on-demand via option [3]), render 2x2 grid
+        grid = Table.grid(expand=True, padding=(0, 1))
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+        bookmarks_panel = _create_bookmarks_panel(state)
+        grid.add_row(hygiene_panel, bookmarks_panel)
+        grid.add_row(winget_panel, calendar_panel)
+        c.print(grid)
+    else:
+        # Default morning boot: clean 3-panel layout (Hygiene & Winget top, Calendar agenda below)
+        grid = Table.grid(expand=True, padding=(0, 1))
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+        grid.add_row(hygiene_panel, winget_panel)
+        c.print(grid)
+        c.print(calendar_panel)
 
     # Error panel if any errors were recorded during boot
     if state.has_errors():
@@ -264,7 +266,7 @@ def prompt_action_menu(
 
     menu_table.add_row("[1]", "Triage Screenshots (Sort to Notion & cleanup)")
     menu_table.add_row("[2]", "Downloads Folder Cleanup (Smart categorize & delete advice)")
-    menu_table.add_row("[3]", "Clean Floorp Bookmarks (Launch floorp bookmark tool or stub)")
+    menu_table.add_row("[3]", "Clean Floorp Bookmarks (Launch floorp bookmark preview)")
     menu_table.add_row("[4]", "Upgrade Winget Packages (Execute interactive winget upgrade)")
     menu_table.add_row("[5]", "Notion Read-Later Digest (Preview pick & mark read)")
     menu_table.add_row("[0]", "Dismiss & Exit")

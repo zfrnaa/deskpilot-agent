@@ -90,11 +90,10 @@ def sample_boot_state() -> BootState:
 
 @pytest.mark.asyncio
 async def test_run_phase1_boot_sequence_populates_state():
-    """Verify that run_phase1_boot_sequence runs all 4 tasks and populates BootState."""
+    """Verify that run_phase1_boot_sequence runs only 3 fast boot tasks and populates BootState."""
     settings = Settings()
 
     mock_temp = TempCleanResult(bytes_freed=1024, files_removed=3, dirs_removed=1)
-    mock_floorp = BookmarkAuditResult(total_bookmarks=50, noisy_count=2)
     mock_winget = WingetUpdateResult(total_count=1)
     mock_cal = CalendarAgendaResult(total_count=0, is_configured=True)
 
@@ -105,22 +104,22 @@ async def test_run_phase1_boot_sequence_populates_state():
         patch("deskpilot.cli.fetch_today_agenda", new_callable=AsyncMock) as p_cal,
     ):
         p_temp.return_value = mock_temp
-        p_floorp.return_value = mock_floorp
         p_winget.return_value = mock_winget
         p_cal.return_value = mock_cal
 
         state = await run_phase1_boot_sequence(settings)
 
         assert state.system_hygiene == mock_temp
-        assert state.floorp_bookmarks == mock_floorp
         assert state.winget_updates == mock_winget
         assert state.calendar_agenda == mock_cal
+        assert state.bookmarks is None
+        assert state.floorp_bookmarks is None
         assert not state.has_errors()
 
         p_temp.assert_awaited_once_with(config=settings.temp_cleaner)
-        p_floorp.assert_awaited_once_with(config=settings.floorp)
         p_winget.assert_awaited_once_with(config=settings.winget)
         p_cal.assert_awaited_once_with(config=settings.calendar)
+        p_floorp.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -134,7 +133,6 @@ async def test_run_phase1_boot_sequence_runs_concurrently():
 
     with (
         patch("deskpilot.cli.clean_temp_directory", side_effect=slow_task),
-        patch("deskpilot.cli.audit_floorp_bookmarks", side_effect=slow_task),
         patch("deskpilot.cli.check_winget_updates", side_effect=slow_task),
         patch("deskpilot.cli.fetch_today_agenda", side_effect=slow_task),
     ):
@@ -142,8 +140,8 @@ async def test_run_phase1_boot_sequence_runs_concurrently():
         state = await run_phase1_boot_sequence(settings)
         elapsed = time.perf_counter() - start
 
-        # If sequential, 4 * 0.05 = 0.20s. If concurrent, ~0.05s - 0.12s.
-        assert elapsed < 0.18, f"Tasks took {elapsed:.3f}s, expected concurrent execution"
+        # If sequential, 3 * 0.05 = 0.15s. If concurrent, ~0.05s - 0.12s.
+        assert elapsed < 0.14, f"Tasks took {elapsed:.3f}s, expected concurrent execution"
         assert state is not None
 
 
@@ -155,26 +153,58 @@ async def test_run_phase1_boot_sequence_handles_task_exceptions():
 
     with (
         patch("deskpilot.cli.clean_temp_directory", new_callable=AsyncMock) as p_temp,
-        patch("deskpilot.cli.audit_floorp_bookmarks", new_callable=AsyncMock) as p_floorp,
         patch("deskpilot.cli.check_winget_updates", new_callable=AsyncMock) as p_winget,
         patch("deskpilot.cli.fetch_today_agenda", new_callable=AsyncMock) as p_cal,
     ):
         p_temp.return_value = mock_temp
-        p_floorp.side_effect = RuntimeError("Floorp database corrupted")
-        p_winget.return_value = WingetUpdateResult(total_count=0)
+        p_winget.side_effect = RuntimeError("Winget query failed")
         p_cal.return_value = CalendarAgendaResult(total_count=0)
 
         state = await run_phase1_boot_sequence(settings)
 
         assert state.system_hygiene == mock_temp
-        assert state.floorp_bookmarks is None
-        assert state.winget_updates.total_count == 0
+        assert state.winget_updates is None
+        assert state.calendar_agenda.total_count == 0
         assert state.has_errors()
-        assert any("Floorp database corrupted" in err for err in state.errors)
+        assert any("Winget query failed" in err for err in state.errors)
 
 
-def test_render_dashboard_captures_all_panels(sample_boot_state: BootState):
-    """Verify that render_dashboard outputs panels for hygiene, floorp, winget, and calendar."""
+def test_render_dashboard_3_panel_layout_on_boot():
+    """Verify that render_dashboard outputs a clean 3-panel layout when bookmarks is None."""
+    state = BootState()
+    state.system_hygiene = TempCleanResult(bytes_freed=15728640, files_removed=42, dirs_removed=5)
+    state.winget_updates = WingetUpdateResult(
+        total_count=1,
+        updates=[WingetUpdateItem(name="Git", id="Git.Git", version="2.43.0", available_version="2.44.0")],
+    )
+    state.calendar_agenda = CalendarAgendaResult(
+        events=[CalendarEventItem(id="ev1", summary="Daily Standup", start_time="09:00", end_time="09:30")],
+        total_count=1,
+        is_configured=True,
+    )
+
+    console = Console(record=True, width=120)
+    render_dashboard(state, console=console)
+    output = console.export_text()
+
+    # Verify 3 panels exist
+    assert "System Hygiene" in output or "TEMP" in output
+    assert "15.0 MB" in output
+    assert "42" in output
+
+    assert "Package Updates" in output or "winget" in output
+    assert "Git" in output
+
+    assert "Calendar" in output or "Agenda" in output
+    assert "Daily Standup" in output
+
+    # Verify bookmarks panel is NOT rendered on initial boot
+    assert "Floorp" not in output
+    assert "Bookmarks" not in output
+
+
+def test_render_dashboard_captures_all_panels_when_bookmarks_present(sample_boot_state: BootState):
+    """Verify that render_dashboard outputs bookmarks panel when state.bookmarks is present."""
     console = Console(record=True, width=120)
     render_dashboard(sample_boot_state, console=console)
     output = console.export_text()
@@ -207,6 +237,9 @@ def test_render_dashboard_handles_unconfigured_or_empty_state():
     assert "DeskPilot" in output
     # Check that fallback text appears for unpopulated fields
     assert "not executed" in output.lower() or "not run" in output.lower() or "disabled" in output.lower()
+    # Floorp bookmarks should NOT appear when empty_state.bookmarks is None
+    assert "Floorp" not in output
+    assert "Bookmarks" not in output
 
 
 def test_render_dashboard_displays_boot_errors():
