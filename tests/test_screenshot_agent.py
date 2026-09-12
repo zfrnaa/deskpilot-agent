@@ -814,3 +814,87 @@ def test_parse_vision_response_heuristic_fallback():
     raw = "Based on the image, this is clearly a WORK_NOTES screenshot showing terminal commands."
     parsed = parse_vision_response(raw)
     assert parsed["classification"] == "WORK_NOTES"
+
+
+def test_sync_approved_items_interactive_token_recovery(tmp_path: Path):
+    """Verify 401 unauthorized token error prompts user for new token and retries sync."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import sync_approved_items
+
+    img_path = _create_dummy_image(tmp_path / "a.png")
+    item = ScreenshotItem(path=img_path, classification="WORK_NOTES", cluster_tag="Dev")
+    mock_client = MagicMock()
+    # First call raises 401 unauthorized, second succeeds
+    mock_client.pages.create.side_effect = [Exception("unauthorized 401 invalid token"), {"id": "page_ok"}]
+    mock_client.databases.retrieve.return_value = {"id": "db_1", "properties": {"Title": {"type": "title"}}}
+
+    prompts = []
+
+    def fake_prompt(msg: str) -> str:
+        prompts.append(msg)
+        return "secret_new_valid_token"
+
+    synced, errors = sync_approved_items(
+        items=[item],
+        approved_cluster_keys=["Dev"],
+        notion_client=mock_client,
+        database_id="db_1",
+        prompt_func=fake_prompt,
+    )
+    assert len(prompts) == 1
+    assert "token" in prompts[0].lower()
+
+
+def test_sync_approved_items_interactive_db_id_recovery(tmp_path: Path):
+    """Verify 404 object_not_found database error prompts user for new DB ID and retries."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import sync_approved_items
+
+    img_path = _create_dummy_image(tmp_path / "b.png")
+    item = ScreenshotItem(path=img_path, classification="WORK_NOTES", cluster_tag="Dev")
+    mock_client = MagicMock()
+    # 404 on bad database
+    mock_client.databases.retrieve.side_effect = [
+        Exception("object_not_found 404"),
+        {"id": "db_corrected", "properties": {"Title": {"type": "title"}}},
+    ]
+    mock_client.pages.create.return_value = {"id": "page_ok"}
+
+    prompts = []
+
+    def fake_prompt(msg: str) -> str:
+        prompts.append(msg)
+        return "db_corrected"
+
+    synced, errors = sync_approved_items(
+        items=[item],
+        approved_cluster_keys=["Dev"],
+        notion_client=mock_client,
+        database_id="db_bad",
+        prompt_func=fake_prompt,
+    )
+    assert len(prompts) == 1
+    assert any(term in prompts[0].lower() for term in ("database", "id", "key", "target"))
+
+
+def test_sync_approved_items_empty_prompt_finishes_without_notion(tmp_path: Path):
+    """Verify pressing Enter (empty prompt) skips Notion sync gracefully without failing local triage."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import sync_approved_items
+
+    img_path = _create_dummy_image(tmp_path / "c.png")
+    item = ScreenshotItem(path=img_path, classification="WORK_NOTES", cluster_tag="Dev")
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.side_effect = Exception("object_not_found 404")
+
+    synced, errors = sync_approved_items(
+        items=[item],
+        approved_cluster_keys=["Dev"],
+        notion_client=mock_client,
+        database_id="db_bad",
+        prompt_func=lambda _: "",  # User pressed Enter with empty key
+    )
+    assert synced == 0
+    assert item.is_synced is False
+    assert any(
+        "without passing to notion" in err.lower() or "skipped" in err.lower() or "not found" in err.lower()
+        for err in errors
+    )
+
