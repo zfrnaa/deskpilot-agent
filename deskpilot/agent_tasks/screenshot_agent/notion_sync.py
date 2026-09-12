@@ -121,11 +121,24 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
                 date_prop = name
                 break
 
+    tag_options: list[str] = []
+    if tag_prop and tag_type:
+        prop_obj = properties.get(tag_prop, {})
+        if isinstance(prop_obj, dict):
+            options = prop_obj.get(tag_type, {}).get("options", [])
+            if isinstance(options, list):
+                tag_options = [
+                    opt.get("name")
+                    for opt in options
+                    if isinstance(opt, dict) and opt.get("name")
+                ]
+
     return {
         "title_prop": title_prop or "Name",
         "tag_prop": tag_prop,
         "tag_type": tag_type,
         "date_prop": date_prop,
+        "tag_options": tag_options,
     }
 
 

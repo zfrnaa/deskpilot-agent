@@ -1239,8 +1239,7 @@ def test_introspect_database_schema_extracts_tag_options():
 
 def test_classify_screenshot_uses_available_tags_and_snaps(tmp_path: Path):
     """Verify classify_screenshot prompts with available tags and snaps fuzzy match."""
-    img = tmp_path / "code.png"
-    img.write_bytes(b"\x89PNG\r\n\x1a\n")
+    img = _create_dummy_image(tmp_path / "code.png")
 
     item = ScreenshotItem(path=img, filename="code.png")
     mock_llm = MagicMock()

@@ -147,11 +147,53 @@ def get_default_vision_llm(
     return None
 
 
+def _snap_tag_to_available(tag: str, available_tags: list[str]) -> str:
+    """Snap a cluster_tag to an existing available tag using exact match or fuzzy/token overlap."""
+    if not tag or not available_tags:
+        return tag
+
+    tag_clean = tag.strip()
+    tag_lower = tag_clean.lower()
+
+    # 1. Exact case-insensitive match
+    for opt in available_tags:
+        if tag_lower == opt.strip().lower():
+            return opt
+
+    # 2. Substring or token overlap match
+    tag_tokens = set(re.findall(r"\w+", tag_lower))
+
+    best_opt = None
+    best_score = 0.0
+
+    for opt in available_tags:
+        opt_clean = opt.strip()
+        opt_lower = opt_clean.lower()
+
+        # Check substring containment
+        if tag_lower in opt_lower or opt_lower in tag_lower:
+            return opt
+
+        opt_tokens = set(re.findall(r"\w+", opt_lower))
+        if tag_tokens and opt_tokens:
+            overlap = len(tag_tokens & opt_tokens)
+            score = overlap / max(len(tag_tokens), len(opt_tokens))
+            if score >= 0.5 and score > best_score:
+                best_score = score
+                best_opt = opt
+
+    if best_opt:
+        return best_opt
+
+    return tag_clean
+
+
 @traceable(name="classify_screenshot")
 def classify_screenshot(
     item: ScreenshotItem,
     llm: Any = None,
     fallback_tag: str = "General",
+    available_tags: list[str] | None = None,
 ) -> ScreenshotItem:
     """Classify a single screenshot using the vision model or mock callable.
 
@@ -179,7 +221,10 @@ def classify_screenshot(
                 if cls_val in valid_classifications:
                     item.classification = cls_val
                 item.title = res.get("title", item.title)
-                item.cluster_tag = res.get("cluster_tag", item.cluster_tag)
+                c_tag = res.get("cluster_tag", item.cluster_tag)
+                if available_tags and c_tag:
+                    c_tag = _snap_tag_to_available(c_tag, available_tags)
+                item.cluster_tag = c_tag
                 item.rationale = res.get("rationale", item.rationale)
                 return item
         except Exception as e:
@@ -211,8 +256,14 @@ def classify_screenshot(
                 '  "title": "A short, descriptive title (3-7 words)",\n'
                 '  "cluster_tag": "A category tag such as Work, Dev, Receipts, Architecture, Reading, Gaming, Personal",\n'
                 '  "rationale": "One-line rationale explaining the classification"\n'
-                "}"
+                "}\n"
             )
+
+            if available_tags:
+                prompt += (
+                    f"For cluster_tag, you SHOULD choose from these existing subject categories if related: "
+                    f"{', '.join(available_tags)}. Only if NONE of these subjects apply, provide a new concise subject.\n"
+                )
 
             message = HumanMessage(
                 content=[
@@ -260,6 +311,7 @@ def classify_screenshot(
                 content=content,
                 fallback_tag=fallback_tag,
                 filename=item.filename,
+                available_tags=available_tags,
             )
             item.classification = parsed["classification"]
             item.title = parsed["title"]
@@ -277,6 +329,7 @@ def parse_vision_response(
     content: str,
     fallback_tag: str = "General",
     filename: str = "",
+    available_tags: list[str] | None = None,
 ) -> dict[str, str]:
     """Parse model response using strict JSON, regex fuzzy matching, or heuristic fallback."""
     valid_classifications = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "LOCAL_KEEP", "NOTION_NOTE"}
@@ -338,10 +391,13 @@ def parse_vision_response(
     # Build final standardized result
     classification = parsed_dict.get("classification")
     if classification in valid_classifications:
+        raw_tag = str(parsed_dict.get("cluster_tag") or fallback_tag)
+        if available_tags:
+            raw_tag = _snap_tag_to_available(raw_tag, available_tags)
         return {
             "classification": classification,
             "title": str(parsed_dict.get("title") or filename or "Screenshot Note"),
-            "cluster_tag": str(parsed_dict.get("cluster_tag") or fallback_tag),
+            "cluster_tag": raw_tag,
             "rationale": str(parsed_dict.get("rationale") or "Classified from vision response"),
         }
 
@@ -353,11 +409,11 @@ def parse_vision_response(
     }
 
 
-
 @traceable(name="triage_screenshots")
 def triage_screenshots(
     items: list[ScreenshotItem],
     llm: Any = None,
+    available_tags: list[str] | None = None,
 ) -> tuple[list[ScreenshotItem], list[str]]:
     """Triage a list of screenshots and collect any processing errors."""
     updated: list[ScreenshotItem] = []
@@ -365,7 +421,7 @@ def triage_screenshots(
 
     for item in items:
         try:
-            classified = classify_screenshot(item, llm=llm)
+            classified = classify_screenshot(item, llm=llm, available_tags=available_tags)
             updated.append(classified)
         except Exception as e:
             item.classification = "LOCAL_KEEP"
