@@ -44,7 +44,7 @@ def _suppress_afc_warning() -> None:
 
 
 def get_ollama_vision_llm(
-    ollama_model: str = "bakllava",
+    ollama_model: str = "minicpm-v",
     ollama_url: str = "http://localhost:11434",
 ) -> Any:
     """Instantiate and return Ollama Chat model for vision classification."""
@@ -52,7 +52,7 @@ def get_ollama_vision_llm(
         from langchain_ollama import ChatOllama
 
         return ChatOllama(
-            model=ollama_model or "bakllava",
+            model=ollama_model or "minicpm-v",
             base_url=ollama_url or "http://localhost:11434",
             temperature=0.1,
         )
@@ -61,7 +61,7 @@ def get_ollama_vision_llm(
             from langchain_community.chat_models import ChatOllama
 
             return ChatOllama(
-                model=ollama_model or "bakllava",
+                model=ollama_model or "minicpm-v",
                 base_url=ollama_url or "http://localhost:11434",
                 temperature=0.1,
             )
@@ -140,7 +140,7 @@ def get_default_vision_llm(
     # If no Gemini key is provided, check if Ollama is configured
     if ollama_model or ollama_url:
         return get_ollama_vision_llm(
-            ollama_model=ollama_model or "bakllava",
+            ollama_model=ollama_model or "minicpm-v",
             ollama_url=ollama_url or "http://localhost:11434",
         )
 
@@ -234,8 +234,8 @@ def classify_screenshot(
                 ) or ("google" in llm.__class__.__module__.lower() or "gemini" in llm.__class__.__name__.lower())
 
                 if is_quota_or_gemini:
-                    # Attempt automatic fallback to Ollama BakLLaVA
-                    ollama_llm = get_default_vision_llm(gemini_api_key="", ollama_model="bakllava")
+                    # Attempt automatic fallback to Ollama MiniCPM-V
+                    ollama_llm = get_default_vision_llm(gemini_api_key="", ollama_model="minicpm-v")
                     if ollama_llm is not None:
                         try:
                             response = ollama_llm.invoke([message])

@@ -266,7 +266,7 @@ def build_screenshot_triage_graph(
     builder.add_edge("notion_sync", "cleanup_synced")
     builder.add_edge("cleanup_synced", END)
 
-    return builder.compile()
+    return builder.compile(name="ScreenshotTriageAgent")
 
 
 async def run_screenshot_triage(
@@ -277,10 +277,12 @@ async def run_screenshot_triage(
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
 ) -> ScreenshotAgentState:
     """High-level entrypoint to execute screenshot triage agent using configured settings."""
-    if llm is None and settings.gemini_api_key:
+    if llm is None:
         llm = get_default_vision_llm(
             gemini_api_key=settings.gemini_api_key,
             model=settings.gemini_model,
+            ollama_model=settings.ollama.model if hasattr(settings, "ollama") else None,
+            ollama_url=settings.ollama.url if hasattr(settings, "ollama") else None,
         )
 
     if notion_client is None and settings.notion.enabled and settings.notion.token:
@@ -307,4 +309,4 @@ async def run_screenshot_triage(
         destinations=settings.notion.screenshot_destinations,
     )
 
-    return await graph.ainvoke(initial_state)
+    return await graph.ainvoke(initial_state, config={"run_name": "ScreenshotTriageAgent"})

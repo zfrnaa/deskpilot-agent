@@ -289,20 +289,81 @@ async def test_execute_menu_action_option_1_screenshot_triage():
         "deleted_count": 3,
         "errors": [],
     }
-    with patch(
-        "deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage",
-        new_callable=AsyncMock,
-    ) as mock_agent:
+    with (
+        patch("deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage", new_callable=AsyncMock) as mock_agent,
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.check_gemini_quota", return_value=False),
+    ):
         mock_agent.return_value = mock_triage_result
         settings = Settings()
         state = BootState()
         should_continue = await execute_menu_action("1", state=state, console=console, settings=settings)
         assert should_continue is True
-        mock_agent.assert_awaited_once_with(settings)
+        mock_agent.assert_awaited_once()
         assert state.agent_findings.get("screenshot_triage") == mock_triage_result
         output = console.export_text()
         assert "Screenshot" in output
         assert "Synced: 3" in output or "3" in output
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_1_prompts_when_credits_available():
+    """Verify when Gemini has credits, user is asked [y/n] and user choosing 'n' routes to Ollama."""
+    console = Console(record=True, width=100)
+    mock_triage_result = {"items": [], "synced_count": 1, "deleted_count": 1, "errors": []}
+    with (
+        patch("deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage", new_callable=AsyncMock) as mock_agent,
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.check_gemini_quota", return_value=True),
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.get_ollama_vision_llm") as mock_get_ollama,
+    ):
+        mock_agent.return_value = mock_triage_result
+        mock_ollama_instance = MagicMock()
+        mock_get_ollama.return_value = mock_ollama_instance
+
+        settings = Settings()
+        state = BootState()
+        # User says 'n' to using Gemini
+        should_continue = await execute_menu_action(
+            "1",
+            state=state,
+            console=console,
+            settings=settings,
+            prompt_func=lambda _: "n",
+        )
+        assert should_continue is True
+        mock_get_ollama.assert_called_once()
+        mock_agent.assert_awaited_once_with(settings, llm=mock_ollama_instance)
+        output = console.export_text()
+        assert "Using local Ollama (minicpm-v) as requested" in output
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_1_proceeds_with_gemini_on_yes():
+    """Verify when Gemini has credits and user responds 'y', Gemini model is used."""
+    console = Console(record=True, width=100)
+    mock_triage_result = {"items": [], "synced_count": 1, "deleted_count": 1, "errors": []}
+    with (
+        patch("deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage", new_callable=AsyncMock) as mock_agent,
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.check_gemini_quota", return_value=True),
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.get_default_vision_llm") as mock_get_gemini,
+    ):
+        mock_agent.return_value = mock_triage_result
+        mock_gemini_instance = MagicMock()
+        mock_get_gemini.return_value = mock_gemini_instance
+
+        settings = Settings()
+        state = BootState()
+        should_continue = await execute_menu_action(
+            "1",
+            state=state,
+            console=console,
+            settings=settings,
+            prompt_func=lambda _: "y",
+        )
+        assert should_continue is True
+        mock_get_gemini.assert_called_once()
+        mock_agent.assert_awaited_once_with(settings, llm=mock_gemini_instance)
+        output = console.export_text()
+        assert "Proceeding with Gemini Vision model" in output
 
 
 @pytest.mark.asyncio
@@ -458,7 +519,9 @@ async def test_main_async_interactive_loop_and_clean_exit():
     with (
         patch("deskpilot.cli.load_settings", return_value=settings),
         patch("deskpilot.cli.run_phase1_boot_sequence") as mock_boot,
+        patch("deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage", new_callable=AsyncMock) as mock_triage,
     ):
+        mock_triage.return_value = {"items": [], "synced_count": 0, "deleted_count": 0, "errors": []}
         mock_boot.return_value = BootState()
         exit_code = await main_async(
             console=console,

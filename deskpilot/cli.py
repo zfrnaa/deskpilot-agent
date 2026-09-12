@@ -25,7 +25,7 @@ from deskpilot.boot_tasks import (
     fetch_today_agenda,
 )
 from deskpilot.config import Settings, load_settings
-from deskpilot.state import BootState
+from deskpilot.state import BootState, format_bytes
 
 
 def open_notion_or_browser(page_id: str, web_url: str | None = None) -> bool:
@@ -333,9 +333,56 @@ async def execute_menu_action(
         c.print("[cyan]Starting Screenshot Triage Agent...[/cyan]")
         try:
             from deskpilot.agent_tasks.screenshot_agent.graph import run_screenshot_triage
+            from deskpilot.agent_tasks.screenshot_agent.vision import (
+                check_gemini_quota,
+                get_default_vision_llm,
+                get_ollama_vision_llm,
+            )
 
             cfg = settings or load_settings()
-            triage_res = await run_screenshot_triage(cfg)
+            selected_llm = None
+
+            # Determine vision model routing (Gemini vs local Ollama minicpm-v)
+            if cfg.gemini_api_key:
+                c.print("[dim]Checking Gemini API quota / credits...[/dim]")
+                has_credits = check_gemini_quota(gemini_api_key=cfg.gemini_api_key, model=cfg.gemini_model)
+                if not has_credits:
+                    c.print(
+                        "[yellow]Gemini credits/quota exhausted or unavailable. "
+                        "Automatically routing to local Ollama (minicpm-v)...[/yellow]"
+                    )
+                    selected_llm = get_ollama_vision_llm(
+                        ollama_model=getattr(cfg.ollama, "model", "minicpm-v"),
+                        ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                    )
+                else:
+                    ans = (
+                        prompt_func(
+                            "This will run on Gemini, will you proceed? If no, run it on Ollama [y/n]: "
+                        )
+                        .strip()
+                        .lower()
+                    )
+                    if ans in {"n", "no"}:
+                        c.print("[cyan]Using local Ollama (minicpm-v) as requested.[/cyan]")
+                        selected_llm = get_ollama_vision_llm(
+                            ollama_model=getattr(cfg.ollama, "model", "minicpm-v"),
+                            ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                        )
+                    else:
+                        c.print("[cyan]Proceeding with Gemini Vision model.[/cyan]")
+                        selected_llm = get_default_vision_llm(
+                            gemini_api_key=cfg.gemini_api_key,
+                            model=cfg.gemini_model,
+                        )
+            else:
+                c.print("[yellow]Gemini API key not configured. Using local Ollama (minicpm-v)...[/yellow]")
+                selected_llm = get_ollama_vision_llm(
+                    ollama_model=getattr(cfg.ollama, "model", "minicpm-v"),
+                    ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                )
+
+            triage_res = await run_screenshot_triage(cfg, llm=selected_llm)
             if state is not None:
                 state.set_finding("screenshot_triage", triage_res)
 

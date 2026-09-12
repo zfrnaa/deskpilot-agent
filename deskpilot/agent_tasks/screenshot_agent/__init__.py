@@ -9,6 +9,11 @@ from deskpilot.agent_tasks.screenshot_agent.state import (
     ScreenshotItem,
     create_initial_state,
 )
+from deskpilot.agent_tasks.screenshot_agent.vision import (
+    check_gemini_quota,
+    get_default_vision_llm,
+    get_ollama_vision_llm,
+)
 
 __all__ = [
     "ScreenshotAgentState",
@@ -16,4 +21,8 @@ __all__ = [
     "build_screenshot_triage_graph",
     "create_initial_state",
     "run_screenshot_triage",
+    "check_gemini_quota",
+    "get_default_vision_llm",
+    "get_ollama_vision_llm",
 ]
+

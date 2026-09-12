@@ -121,6 +121,14 @@ class WingetConfig(BaseModel):
     )
 
 
+class OllamaConfig(BaseModel):
+    """Configuration for local Ollama LLM / Vision model."""
+
+    model: str = "minicpm-v"
+    url: str = "http://localhost:11434"
+
+
+
 class MappedSettingsSource(PydanticBaseSettingsSource):
     """Wraps a settings source to map flat notion_* variables to nested notion dictionary."""
 
@@ -183,6 +191,7 @@ class Settings(BaseSettings):
     screenshots: ScreenshotsConfig = Field(default_factory=ScreenshotsConfig)
     downloads: DownloadsConfig = Field(default_factory=DownloadsConfig)
     winget: WingetConfig = Field(default_factory=WingetConfig)
+    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
 
     # Top-level API keys and telemetry settings
     gemini_api_key: str = ""

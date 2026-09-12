@@ -41,3 +41,13 @@ class BootState(BaseModel):
     def has_errors(self) -> bool:
         """Check if any errors were recorded during the boot sequence."""
         return len(self.errors) > 0
+
+
+def format_bytes(num_bytes: int) -> str:
+    """Format bytes into human-readable representation."""
+    val = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(val) < 1024.0:
+            return f"{val:.1f} {unit}" if unit != "B" else f"{int(val)} B"
+        val /= 1024.0
+    return f"{val:.1f} PB"

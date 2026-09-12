@@ -42,3 +42,7 @@ winget:
   ignore_packages:
     - AdvancedSystemCare
     - RevoUninstallerPro
+
+ollama:
+  model: minicpm-v
+  url: http://localhost:11434

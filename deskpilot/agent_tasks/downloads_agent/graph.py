@@ -173,7 +173,7 @@ def build_downloads_hygiene_graph(
     builder.add_edge("human_review_node", "execute_actions")
     builder.add_edge("execute_actions", END)
 
-    return builder.compile()
+    return builder.compile(name="DownloadsHygieneAgent")
 
 
 async def run_downloads_hygiene(
@@ -198,4 +198,4 @@ async def run_downloads_hygiene(
         auto_approve=auto_approve,
     )
 
-    return await graph.ainvoke(initial_state)
+    return await graph.ainvoke(initial_state, config={"run_name": "DownloadsHygieneAgent"})

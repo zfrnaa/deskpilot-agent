@@ -726,7 +726,7 @@ def test_get_default_vision_llm_ollama_fallback():
     with patch("langchain_ollama.ChatOllama", create=True) as mock_chat_ollama:
         llm = get_default_vision_llm(
             gemini_api_key=None,
-            ollama_model="bakllava",
+            ollama_model="minicpm-v",
             ollama_url="http://localhost:11434",
         )
         assert llm is not None
@@ -736,9 +736,9 @@ def test_get_ollama_vision_llm_instantiation():
     """Verify get_ollama_vision_llm returns a ChatOllama instance with configured model and url."""
     from deskpilot.agent_tasks.screenshot_agent.vision import get_ollama_vision_llm
 
-    llm = get_ollama_vision_llm(ollama_model="bakllava", ollama_url="http://localhost:11434")
+    llm = get_ollama_vision_llm(ollama_model="minicpm-v", ollama_url="http://localhost:11434")
     assert llm is not None
-    assert getattr(llm, "model", None) == "bakllava"
+    assert getattr(llm, "model", None) == "minicpm-v"
 
 
 def test_check_gemini_quota_empty_key():

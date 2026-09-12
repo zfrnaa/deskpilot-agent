@@ -9,6 +9,7 @@ from deskpilot.config import (
     ScreenshotDestinationsConfig,
     ScreenshotsConfig,
     DownloadsConfig,
+    OllamaConfig,
     WingetConfig,
     load_settings,
 )
@@ -56,7 +57,11 @@ def test_default_config_models():
     winget_cfg = WingetConfig()
     assert winget_cfg.enabled is True
     assert winget_cfg.timeout_secs == 15
-    assert winget_cfg.ignore_packages == ["AdvancedSystemCare", "RevoUninstallerPro"]
+    assert winget_cfg.ignore_packages == ["IObit.AdvancedSystemCare", "RevoUninstaller.RevoUninstallerPro"]
+
+    ollama_cfg = OllamaConfig()
+    assert ollama_cfg.model == "minicpm-v"
+    assert ollama_cfg.url == "http://localhost:11434"
 
 
 def test_winget_config_custom_ignore_packages():
@@ -77,6 +82,9 @@ screenshots:
   delete_synced_local: false
 winget:
   timeout_secs: 30
+ollama:
+  model: "llava"
+  url: "http://127.0.0.1:11434"
 notion:
   screenshot_destinations:
     work_notes_database_id: "db_work_notes_yaml"
@@ -92,6 +100,8 @@ notion:
     assert settings.floorp.enabled is False
     assert settings.screenshots.delete_synced_local is False
     assert settings.winget.timeout_secs == 30
+    assert settings.ollama.model == "llava"
+    assert settings.ollama.url == "http://127.0.0.1:11434"
     assert settings.notion.screenshot_destinations.work_notes_database_id == "db_work_notes_yaml"
     assert settings.notion.screenshot_destinations.due_diligence_page_id == "page_dd_yaml"
     assert settings.notion.screenshot_destinations.brainstorm_page_id == "page_bs_yaml"

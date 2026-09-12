@@ -212,7 +212,7 @@ def build_read_later_graph(
     builder.add_edge("interactive_or_action_node", "update_notion_status")
     builder.add_edge("update_notion_status", END)
 
-    return builder.compile()
+    return builder.compile(name="NotionReadLaterAgent")
 
 
 async def run_read_later_flow(
@@ -266,4 +266,4 @@ async def run_read_later_flow(
         "interactive": interactive,
     }
 
-    return await graph.ainvoke(initial_state)
+    return await graph.ainvoke(initial_state, config={"run_name": "NotionReadLaterAgent"})
