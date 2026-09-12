@@ -1212,4 +1212,46 @@ def test_sync_screenshot_to_notion_creates_new_page_with_image_when_no_match(tmp
     mock_client.blocks.children.append.assert_not_called()
 
 
+def test_introspect_database_schema_extracts_tag_options():
+    """Verify introspect_database_schema extracts list of existing tag options."""
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_1",
+        "properties": {
+            "Title": {"type": "title", "id": "title"},
+            "Subject": {
+                "type": "multi_select",
+                "multi_select": {
+                    "options": [
+                        {"name": "Python & AI Engineering"},
+                        {"name": "Backend/Database"},
+                        {"name": "CyberSec"},
+                    ]
+                },
+            },
+        },
+    }
+
+    schema = introspect_database_schema(mock_client, "db_1")
+    assert schema["tag_prop"] == "Subject"
+    assert schema["tag_options"] == ["Python & AI Engineering", "Backend/Database", "CyberSec"]
+
+
+def test_classify_screenshot_uses_available_tags_and_snaps(tmp_path: Path):
+    """Verify classify_screenshot prompts with available tags and snaps fuzzy match."""
+    img = tmp_path / "code.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    item = ScreenshotItem(path=img, filename="code.png")
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = (
+        '{"classification": "WORK_NOTES", "title": "PyTorch Guide", "cluster_tag": "python", "rationale": "Deep learning"}'
+    )
+
+    available = ["Python & AI Engineering", "CyberSec", "WEBDEV"]
+    updated = classify_screenshot(item, llm=mock_llm, available_tags=available)
+
+    assert updated.cluster_tag == "Python & AI Engineering"
+
+
 
