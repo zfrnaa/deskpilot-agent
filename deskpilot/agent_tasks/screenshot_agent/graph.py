@@ -53,11 +53,30 @@ def scan_screenshots(state: ScreenshotAgentState) -> dict[str, Any]:
     # Deterministic sort by name (or mtime if available)
     image_files.sort(key=lambda p: p.name.lower())
 
+    total_discovered = len(image_files)
     max_imgs = state.get("max_images", 50)
     selected_files = image_files[:max_imgs] if max_imgs > 0 else image_files
 
+    try:
+        from rich.console import Console
+
+        console = Console()
+        if max_imgs > 0 and total_discovered > max_imgs:
+            console.print(
+                f"[dim]Discovered {total_discovered} screenshots in {path.name}. "
+                f"Processing batch of {len(selected_files)} (max_images={max_imgs}).[/dim]"
+            )
+        else:
+            console.print(f"[dim]Discovered {total_discovered} screenshots in {path.name}.[/dim]")
+    except Exception:
+        pass
+
     items = [ScreenshotItem(path=f, filename=f.name) for f in selected_files]
-    return {"items": items, "errors": errors}
+    return {
+        "items": items,
+        "total_discovered": total_discovered,
+        "errors": errors,
+    }
 
 
 def vision_triage(
@@ -259,7 +278,10 @@ async def run_screenshot_triage(
 ) -> ScreenshotAgentState:
     """High-level entrypoint to execute screenshot triage agent using configured settings."""
     if llm is None and settings.gemini_api_key:
-        llm = get_default_vision_llm(settings.gemini_api_key)
+        llm = get_default_vision_llm(
+            gemini_api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+        )
 
     if notion_client is None and settings.notion.enabled and settings.notion.token:
         from notion_client import Client
@@ -279,7 +301,7 @@ async def run_screenshot_triage(
 
     initial_state = create_initial_state(
         screenshots_dir=settings.screenshots.get_resolved_directory(),
-        max_images=50,
+        max_images=settings.screenshots.max_images,
         auto_approve=auto_approve,
         delete_synced_local=settings.screenshots.delete_synced_local,
         destinations=settings.notion.screenshot_destinations,

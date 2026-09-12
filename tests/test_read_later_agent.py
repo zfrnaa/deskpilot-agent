@@ -35,7 +35,7 @@ def test_read_later_item_model_defaults_and_fields():
     assert item.page_id == "page_123"
     assert item.title == "Supercharging LangGraph"
     assert item.url is None
-    assert item.status == "to be read"
+    assert item.status == "To Be Read"
     assert item.added_date is None
     assert item.tags == []
 
@@ -132,7 +132,7 @@ def test_parse_notion_page_fallbacks_and_missing_properties():
     assert item.page_id == "page-empty-000"
     assert item.title == "Untitled"
     assert item.url is None
-    assert item.status == "to be read"
+    assert item.status == "To Be Read"
     assert item.added_date is None
     assert item.tags == []
 
@@ -185,6 +185,35 @@ async def test_query_unread_items_api_error_handling():
 
     items = await query_unread_items(database_id="db_error", client=mock_client)
     assert items == []
+
+
+@pytest.mark.asyncio
+async def test_query_unread_items_via_data_sources_fallback():
+    """Verify query_unread_items uses data_sources.query when databases.query is absent."""
+    mock_client = MagicMock()
+    # Simulate newer notion-client where databases has no query method
+    del mock_client.databases.query
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_modern",
+        "data_sources": [{"id": "ds_999", "name": "Modern DB"}],
+    }
+    mock_client.data_sources.query.return_value = {
+        "results": [
+            {
+                "id": "page_ds_1",
+                "properties": {
+                    "Title": {"type": "title", "title": [{"plain_text": "Modern Notion Page"}]},
+                    "Status": {"type": "status", "status": {"name": "To Be Read"}},
+                },
+            }
+        ]
+    }
+
+    items = await query_unread_items(database_id="db_modern", client=mock_client)
+    assert len(items) == 1
+    assert items[0].page_id == "page_ds_1"
+    assert items[0].title == "Modern Notion Page"
+    mock_client.data_sources.query.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -399,6 +428,7 @@ async def test_end_to_end_graph_execution():
 async def test_run_read_later_flow_unconfigured_graceful_degradation():
     """Verify run_read_later_flow degrades gracefully when token or database_id is missing."""
     unconfigured_settings = Settings(
+        _env_file=None,
         notion=NotionConfig(token="", read_later_database_id=""),
     )
 

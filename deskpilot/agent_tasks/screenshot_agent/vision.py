@@ -13,6 +13,15 @@ from PIL import Image
 
 from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotItem
 
+try:
+    from langsmith import traceable
+except ImportError:
+    # Graceful fallback decorator if langsmith is not installed
+    def traceable(name_or_fn=None, **kwargs):  # type: ignore[no-untyped-def]
+        if callable(name_or_fn):
+            return name_or_fn
+        return lambda fn: fn
+
 
 def encode_image_to_base64(image_path: Path) -> str:
     """Validate image file with Pillow and encode its content to a base64 string."""
@@ -24,21 +33,37 @@ def encode_image_to_base64(image_path: Path) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-def get_default_vision_llm(gemini_api_key: str | None = None) -> Any:
+def _suppress_afc_warning() -> None:
+    """Suppress noisy google.genai AFC warning emitted by langchain-google-genai generate_content calls."""
+    try:
+        from google.genai import models
+
+        models.Models._logged_afc_warning = True
+    except Exception:
+        pass
+
+
+def get_default_vision_llm(
+    gemini_api_key: str | None = None,
+    model: str = "gemini-3.8-flash",
+) -> Any:
     """Lazy-load and instantiate Google GenAI Chat model for multimodal vision triage."""
     key = gemini_api_key or os.getenv("GEMINI_API_KEY", "")
     if not key:
         return None
 
+    _suppress_afc_warning()
+
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model=model,
         google_api_key=key,
         temperature=0.1,
     )
 
 
+@traceable(name="classify_screenshot")
 def classify_screenshot(
     item: ScreenshotItem,
     llm: Any = None,
@@ -158,6 +183,7 @@ def classify_screenshot(
     return item
 
 
+@traceable(name="triage_screenshots")
 def triage_screenshots(
     items: list[ScreenshotItem],
     llm: Any = None,

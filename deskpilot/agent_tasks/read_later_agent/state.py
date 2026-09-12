@@ -14,7 +14,7 @@ class ReadLaterItem(BaseModel):
     page_id: str
     title: str
     url: str | None = None
-    status: str = "to be read"
+    status: str = "To Be Read"
     added_date: str | None = None
     tags: list[str] = Field(default_factory=list)
 

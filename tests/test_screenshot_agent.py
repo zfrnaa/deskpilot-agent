@@ -354,11 +354,13 @@ async def test_run_screenshot_triage_orchestration(tmp_path: Path):
     shot = _create_dummy_image(tmp_path / "meeting_notes.png")
 
     settings = Settings(
+        _env_file=None,
         screenshots=ScreenshotsConfig(directory=tmp_path, delete_synced_local=True),
         notion=NotionConfig(
             token="mock_token",
             parent_page_id="mock_parent_id",
             read_later_database_id="mock_read_later_db_id",
+            screenshot_destinations=ScreenshotDestinationsConfig(work_notes_database_id=""),
         ),
     )
 
@@ -653,5 +655,64 @@ def test_unconfigured_destination_safety_does_not_delete_file(tmp_path: Path):
     assert file_work.exists()
     assert file_dd.exists()
     assert file_bs.exists()
+
+
+def test_introspect_database_schema_via_data_sources():
+    """Verify introspect_database_schema introspects properties from data_sources when properties is empty."""
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_test",
+        "properties": None,
+        "data_sources": [{"id": "ds_123", "name": "Due Diligence"}],
+    }
+    mock_client.data_sources.retrieve.return_value = {
+        "id": "ds_123",
+        "properties": {
+            "Question": {"type": "title", "id": "title"},
+            "Tags": {"type": "multi_select"},
+            "Date Added": {"type": "date"},
+        },
+    }
+
+    schema = introspect_database_schema(mock_client, "db_test")
+    assert schema["title_prop"] == "Question"
+    assert schema["tag_prop"] == "Tags"
+    assert schema["tag_type"] == "multi_select"
+    assert schema["date_prop"] == "Date Added"
+
+
+def test_sync_screenshot_to_notion_falls_back_to_database_when_page_append_fails(tmp_path: Path):
+    """Verify when a destination was assumed to be a page but is actually a database, it automatically creates a DB page."""
+    img_path = _create_dummy_image(tmp_path / "due_diligence_sheet.png")
+    item = ScreenshotItem(
+        path=img_path,
+        title="Audit Checklist",
+        classification="DUE_DILIGENCE",
+        cluster_tag="Audit",
+    )
+
+    mock_client = MagicMock()
+    # blocks.children.append raises Notion error indicating block doesn't support children
+    mock_client.blocks.children.append.side_effect = Exception("Block does not support children.")
+    mock_client.databases.retrieve.return_value = {
+        "id": "page_dd_123",
+        "properties": {"Question": {"type": "title", "id": "title"}},
+    }
+    mock_client.pages.create.return_value = {"id": "created_page_id"}
+
+    destinations = ScreenshotDestinationsConfig(due_diligence_page_id="page_dd_123")
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        destinations=destinations,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    mock_client.blocks.children.append.assert_called_once()
+    mock_client.pages.create.assert_called_once()
+    payload = mock_client.pages.create.call_args[1]
+    assert payload["parent"]["database_id"] == "page_dd_123"
+    assert "Question" in payload["properties"]
 
 

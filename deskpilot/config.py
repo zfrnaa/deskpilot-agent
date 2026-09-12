@@ -92,6 +92,7 @@ class ScreenshotsConfig(BaseModel):
     enabled: bool = True
     directory: Path = Path("~/Pictures/Screenshots")
     delete_synced_local: bool = True
+    max_images: int = 50
 
     def get_resolved_directory(self) -> Path:
         """Return resolved path to the screenshots folder."""
@@ -116,7 +117,7 @@ class WingetConfig(BaseModel):
     enabled: bool = True
     timeout_secs: int = 15
     ignore_packages: list[str] = Field(
-        default_factory=lambda: ["AdvancedSystemCare", "RevoUninstallerPro"]
+        default_factory=lambda: ["IObit.AdvancedSystemCare", "RevoUninstaller.RevoUninstallerPro"]
     )
 
 
@@ -185,9 +186,13 @@ class Settings(BaseSettings):
 
     # Top-level API keys and telemetry settings
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.8-flash"
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""
     langchain_project: str = "DeskPilot"
+    langsmith_tracing: bool | None = None
+    langsmith_api_key: str = ""
+    langsmith_project: str = ""
 
     # Flat Notion credentials support (e.g. from .env or os.environ)
     notion_token: str = ""
@@ -206,17 +211,24 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        yaml_path = getattr(settings_cls, "_custom_yaml_file", None)
+        custom_yaml = getattr(settings_cls, "_custom_yaml_file", None)
+        yaml_path = custom_yaml
         if yaml_path is None and Path("config.yaml").exists():
             yaml_path = Path("config.yaml")
 
         sources: list[PydanticBaseSettingsSource] = [
             init_settings,
             MappedSettingsSource(env_settings),
-            MappedSettingsSource(dotenv_settings),
         ]
-        if yaml_path and Path(yaml_path).exists():
-            sources.append(YamlConfigSettingsSource(settings_cls, yaml_file=yaml_path))
+        if custom_yaml and Path(custom_yaml).exists():
+            # Explicitly specified config file overrides .env settings
+            sources.append(YamlConfigSettingsSource(settings_cls, yaml_file=custom_yaml))
+            sources.append(MappedSettingsSource(dotenv_settings))
+        else:
+            # Default config.yaml acts as a fallback below .env settings
+            sources.append(MappedSettingsSource(dotenv_settings))
+            if yaml_path and Path(yaml_path).exists():
+                sources.append(YamlConfigSettingsSource(settings_cls, yaml_file=yaml_path))
         sources.append(file_secret_settings)
         return tuple(sources)
 
@@ -279,7 +291,56 @@ class Settings(BaseSettings):
 
         if not self.gemini_api_key and os.getenv("GEMINI_API_KEY"):
             self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+
+        # Harmonize LangSmith / LangChain tracing configurations
+        if self.langsmith_tracing is None and "LANGSMITH_TRACING" in os.environ:
+            val = os.getenv("LANGSMITH_TRACING", "").strip().lower()
+            self.langsmith_tracing = val in {"true", "1", "yes"}
+
+        if self.langsmith_tracing is not None:
+            # Sync to LANGCHAIN_TRACING_V2
+            self.langchain_tracing_v2 = bool(self.langsmith_tracing)
+        elif self.langchain_tracing_v2:
+            self.langsmith_tracing = True
+
+        if "LANGSMITH_API_KEY" in os.environ:
+            self.langsmith_api_key = os.environ["LANGSMITH_API_KEY"]
+            self.langchain_api_key = self.langsmith_api_key
+        elif self.langsmith_api_key:
+            self.langchain_api_key = self.langsmith_api_key
+        elif self.langchain_api_key:
+            self.langsmith_api_key = self.langchain_api_key
+
+        if "LANGSMITH_PROJECT" in os.environ:
+            self.langsmith_project = os.environ["LANGSMITH_PROJECT"]
+            self.langchain_project = self.langsmith_project
+        elif self.langsmith_project:
+            self.langchain_project = self.langsmith_project
+        elif self.langchain_project and not self.langsmith_project:
+            self.langsmith_project = self.langchain_project
+
         return self
+
+    def setup_tracing(self) -> bool:
+        """Export LangSmith / LangChain tracing environment variables if enabled.
+
+        Returns True if tracing is active and configured.
+        """
+        is_tracing = bool(self.langsmith_tracing or self.langchain_tracing_v2)
+        api_key = self.langsmith_api_key or self.langchain_api_key
+        project = self.langsmith_project or self.langchain_project or "DeskPilot"
+
+        if is_tracing:
+            os.environ["LANGSMITH_TRACING"] = "true"
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+            if api_key:
+                os.environ["LANGSMITH_API_KEY"] = api_key
+                os.environ["LANGCHAIN_API_KEY"] = api_key
+            if project:
+                os.environ["LANGSMITH_PROJECT"] = project
+                os.environ["LANGCHAIN_PROJECT"] = project
+            return True
+        return False
 
     @classmethod
     def load(

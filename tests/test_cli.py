@@ -422,7 +422,13 @@ async def test_execute_menu_action_option_5_read_later_digest():
         mock_agent.return_value = mock_rl_result
         settings = Settings()
         state = BootState()
-        should_continue = await execute_menu_action("5", state=state, console=console, settings=settings)
+        should_continue = await execute_menu_action(
+            "5",
+            state=state,
+            console=console,
+            settings=settings,
+            prompt_func=lambda _: "n",
+        )
         assert should_continue is True
         mock_agent.assert_awaited_once_with(settings)
         assert state.agent_findings.get("read_later_digest") == mock_rl_result

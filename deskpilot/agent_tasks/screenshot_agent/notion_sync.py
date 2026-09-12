@@ -19,8 +19,24 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
     - Tag/category property (type in ("select", "multi_select"), prioritizing Tags, Category, Topic, Area)
     - Date property (type == "date", prioritizing Date, Created)
     """
-    db_meta = notion_client.databases.retrieve(database_id=database_id)
-    properties = db_meta.get("properties", {})
+    properties: dict[str, Any] = {}
+    try:
+        db_meta = notion_client.databases.retrieve(database_id=database_id)
+        if isinstance(db_meta, dict):
+            properties = db_meta.get("properties") or {}
+            if not properties and db_meta.get("data_sources"):
+                data_sources = db_meta["data_sources"]
+                if isinstance(data_sources, list) and data_sources:
+                    ds_id = data_sources[0].get("id")
+                    if ds_id and hasattr(notion_client, "data_sources"):
+                        try:
+                            ds_meta = notion_client.data_sources.retrieve(data_source_id=ds_id)
+                            if isinstance(ds_meta, dict):
+                                properties = ds_meta.get("properties") or {}
+                        except Exception:
+                            pass
+    except Exception:
+        properties = {}
 
     title_prop: str | None = None
     tag_prop: str | None = None
@@ -32,19 +48,19 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
 
     # 1. Find title property
     for name, prop in properties.items():
-        if prop.get("type") == "title" or prop.get("id") == "title":
+        if isinstance(prop, dict) and (prop.get("type") == "title" or prop.get("id") == "title"):
             title_prop = name
             break
     if not title_prop:
         for name in properties:
-            if name.lower() in ("name", "title", "topic"):
+            if name.lower() in ("name", "title", "topic", "question", "idea"):
                 title_prop = name
                 break
 
     # 2. Find tag/category property
     for pref in tag_preferred:
         for name, prop in properties.items():
-            if name.lower() == pref and prop.get("type") in ("select", "multi_select"):
+            if isinstance(prop, dict) and name.lower() == pref and prop.get("type") in ("select", "multi_select"):
                 tag_prop = name
                 tag_type = prop.get("type")
                 break
@@ -52,7 +68,7 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
             break
     if not tag_prop:
         for name, prop in properties.items():
-            if prop.get("type") in ("select", "multi_select"):
+            if isinstance(prop, dict) and prop.get("type") in ("select", "multi_select"):
                 tag_prop = name
                 tag_type = prop.get("type")
                 break
@@ -60,14 +76,14 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
     # 3. Find date property
     for pref in date_preferred:
         for name, prop in properties.items():
-            if name.lower() == pref and prop.get("type") == "date":
+            if isinstance(prop, dict) and name.lower() == pref and prop.get("type") == "date":
                 date_prop = name
                 break
         if date_prop:
             break
     if not date_prop:
         for name, prop in properties.items():
-            if prop.get("type") == "date":
+            if isinstance(prop, dict) and prop.get("type") == "date":
                 date_prop = name
                 break
 
@@ -231,6 +247,7 @@ def sync_screenshot_to_notion(
     """Synchronize a single screenshot item to its designated Notion target.
 
     Sets is_synced=True strictly upon verified API success.
+    Automatically adapts between page appending and database creation if target is a database.
     """
     if notion_client is None:
         item.is_synced = False
@@ -253,30 +270,39 @@ def sync_screenshot_to_notion(
 
     title_text = item.title.strip() if item.title else item.filename
 
+    def _create_database_page(db_id: str) -> bool:
+        schema = schema_cache.get(db_id) if schema_cache is not None else None
+        if schema is None:
+            try:
+                schema = introspect_database_schema(notion_client, db_id)
+            except Exception:
+                schema = {"title_prop": "Name"}
+            if schema_cache is not None:
+                schema_cache[db_id] = schema
+        payload = build_database_page_payload(item, db_id, schema)
+        notion_client.pages.create(**payload)
+        item.is_synced = True
+        return True
+
     try:
         if target_type == "database":
-            schema = schema_cache.get(target_id) if schema_cache is not None else None
-            if schema is None:
-                try:
-                    schema = introspect_database_schema(notion_client, target_id)
-                except Exception:
-                    schema = {"title_prop": "Name"}
-                if schema_cache is not None:
-                    schema_cache[target_id] = schema
-
-            payload = build_database_page_payload(item, target_id, schema)
-            notion_client.pages.create(**payload)
-            item.is_synced = True
-            return True
+            return _create_database_page(target_id)
 
         elif target_type == "page":
-            blocks = build_page_append_blocks(item)
-            notion_client.blocks.children.append(
-                block_id=target_id,
-                children=blocks,
-            )
-            item.is_synced = True
-            return True
+            try:
+                blocks = build_page_append_blocks(item)
+                notion_client.blocks.children.append(
+                    block_id=target_id,
+                    children=blocks,
+                )
+                item.is_synced = True
+                return True
+            except Exception as page_err:
+                err_msg = str(page_err).lower()
+                # If target is actually a database or block does not support child blocks, fall back to database creation
+                if "database" in err_msg or "does not support children" in err_msg:
+                    return _create_database_page(target_id)
+                raise page_err
 
         elif target_type == "legacy_page":
             parent = {"page_id": target_id}
@@ -370,7 +396,7 @@ def sync_approved_items(
                 if success:
                     synced_count += 1
                 else:
-                    errors.append(f"Failed to sync {item.filename} to Notion")
+                    errors.append(f"Failed to sync {item.filename} to Notion target {target_id}")
             except Exception as e:
                 item.is_synced = False
                 errors.append(f"Unexpected error syncing {item.filename}: {e}")

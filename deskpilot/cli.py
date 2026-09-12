@@ -28,14 +28,36 @@ from deskpilot.config import Settings, load_settings
 from deskpilot.state import BootState
 
 
-def format_bytes(num_bytes: int) -> str:
-    """Format bytes count into a human-readable string."""
-    val = float(num_bytes)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(val) < 1024.0:
-            return f"{val:.1f} {unit}" if unit != "B" else f"{int(val)} B"
-        val /= 1024.0
-    return f"{val:.1f} PB"
+def open_notion_or_browser(page_id: str, web_url: str | None = None) -> bool:
+    """Open Notion page in Notion desktop app if available, otherwise open in browser (Chrome preferred)."""
+    import os
+    import shutil
+    import webbrowser
+
+    clean_id = page_id.replace("-", "")
+    app_uri = f"notion://www.notion.so/{clean_id}"
+    http_url = web_url or f"https://www.notion.so/{clean_id}"
+
+    # Check for Notion desktop app executable or protocol handler
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    notion_exe_path = os.path.join(local_app_data, "Programs", "Notion", "Notion.exe")
+
+    if (local_app_data and os.path.exists(notion_exe_path)) or shutil.which("notion"):
+        try:
+            # On Windows, os.startfile with the notion:// URI opens directly in Notion app
+            if hasattr(os, "startfile"):
+                os.startfile(app_uri)
+                return True
+        except Exception:
+            pass
+
+    # Fallback to Chrome or default browser
+    try:
+        chrome = webbrowser.get("chrome")
+        chrome.open(http_url)
+        return True
+    except Exception:
+        return webbrowser.open(http_url)
 
 
 async def run_phase1_boot_sequence(settings: Settings) -> BootState:
@@ -295,6 +317,7 @@ async def execute_menu_action(
     state: BootState | None = None,
     console: Console | None = None,
     settings: Settings | None = None,
+    prompt_func: Callable[[str], str] = input,
 ) -> bool:
     """Execute the selected menu action.
 
@@ -321,7 +344,9 @@ async def execute_menu_action(
             errors = triage_res.get("errors", [])
             c.print(f"[bold green]Screenshot Triage complete:[/bold green] Synced: {synced}, Deleted: {deleted}")
             if errors:
-                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow]")
+                for err in errors:
+                    c.print(f"  [yellow]• {err}[/yellow]")
         except Exception as e:
             c.print(f"[red]Screenshot Triage failed: {e}[/red]")
         return True
@@ -404,6 +429,7 @@ async def execute_menu_action(
         c.print("[cyan]Starting Notion Read-Later Digest Agent...[/cyan]")
         try:
             from deskpilot.agent_tasks.read_later_agent.graph import run_read_later_flow
+            from deskpilot.agent_tasks.read_later_agent.notion_reader import update_item_status
 
             cfg = settings or load_settings()
             rl_res = await run_read_later_flow(cfg)
@@ -417,6 +443,42 @@ async def execute_menu_action(
             c.print(f"[bold green]Read-Later Digest complete:[/bold green] Unread: {unread}, Recommended: {rec_title}")
             if errors:
                 c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+
+            if rec is not None:
+                lines = [
+                    f"[bold cyan]Title:[/bold cyan] {getattr(rec, 'title', 'Untitled')}",
+                    f"[bold]URL:[/bold] {getattr(rec, 'url', None) or 'N/A'}",
+                    f"[bold]Added:[/bold] {getattr(rec, 'added_date', None) or 'N/A'}",
+                    f"[bold]Tags:[/bold] {', '.join(getattr(rec, 'tags', [])) if getattr(rec, 'tags', None) else 'None'}",
+                ]
+                c.print(
+                    Panel(
+                        "\n".join(lines),
+                        title="[bold green]Recommended Item to Read[/bold green]",
+                        border_style="green",
+                    )
+                )
+
+                ans = prompt_func("\nDo you want to open and read this item now? [Y/n]: ").strip().lower()
+                if ans in ("", "y", "yes", "r", "read"):
+                    c.print(f"[cyan]Opening '{rec.title}'...[/cyan]")
+                    opened = open_notion_or_browser(page_id=rec.page_id, web_url=rec.url)
+                    if not opened:
+                        c.print("[yellow]Could not launch Notion app or browser.[/yellow]")
+
+                    mark_ans = prompt_func("\nMark this item as 'Read' in Notion? [Y/n]: ").strip().lower()
+                    if mark_ans in ("", "y", "yes", "r", "read"):
+                        token = cfg.notion.token
+                        if token:
+                            from notion_client import Client
+                            cl = Client(auth=token)
+                            updated = await update_item_status(page_id=rec.page_id, new_status="Read", client=cl)
+                            if not updated:
+                                updated = await update_item_status(page_id=rec.page_id, new_status="read", client=cl)
+                            if updated:
+                                c.print(f"[bold green]Successfully marked '{rec.title}' as Read in Notion![/bold green]")
+                            else:
+                                c.print(f"[yellow]Could not update status for '{rec.title}' in Notion.[/yellow]")
         except Exception as e:
             c.print(f"[red]Read-Later Digest failed: {e}[/red]")
         return True
@@ -439,6 +501,9 @@ async def main_async(
         except Exception as e:
             c.print(f"[red]Error loading configuration: {e}[/red]")
             return 1
+
+    # Initialize LangSmith / LangChain tracing if configured
+    settings.setup_tracing()
 
     # Run Phase 1 boot sequence concurrently
     state = await run_phase1_boot_sequence(settings)
@@ -463,6 +528,7 @@ async def main_async(
             state=state,
             console=c,
             settings=settings,
+            prompt_func=prompt_func,
         )
         if not should_continue:
             return 0

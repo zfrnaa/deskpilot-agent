@@ -36,7 +36,7 @@ async def fetch_unread_items_node(
     state: ReadLaterAgentState,
     client: Any = None,
 ) -> dict[str, Any]:
-    """Node 1: Queries Notion database for items where status equals 'to be read'."""
+    """Node 1: Queries Notion database for items where status equals 'To Be Read'."""
     db_id = state.get("database_id", "")
     errors = list(state.get("errors", []))
     cl = state.get("client") or client

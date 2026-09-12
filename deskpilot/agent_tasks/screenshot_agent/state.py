@@ -43,6 +43,7 @@ class ScreenshotAgentState(TypedDict, total=False):
 
     screenshots_dir: Path
     max_images: int
+    total_discovered: int
     items: list[ScreenshotItem]
     clusters: dict[str, list[ScreenshotItem]]
     approved_cluster_keys: list[str]
@@ -58,7 +59,7 @@ class ScreenshotAgentState(TypedDict, total=False):
 
 def create_initial_state(
     screenshots_dir: Path,
-    max_images: int = 50,
+    max_images: int = 10,
     auto_approve: bool = False,
     delete_synced_local: bool = True,
     destinations: ScreenshotDestinationsConfig | None = None,

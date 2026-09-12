@@ -180,3 +180,37 @@ def test_no_utf8_bom_in_python_files():
     for py_file in py_files:
         raw_bytes = py_file.read_bytes()
         assert not raw_bytes.startswith(b"\xef\xbb\xbf"), f"BOM found in {py_file}"
+
+
+def test_settings_langsmith_tracing(monkeypatch):
+    import os
+
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2_pt_test_key_123")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "TestDeskPilot")
+
+    settings = Settings()
+    assert settings.langsmith_tracing is True
+    assert settings.langchain_tracing_v2 is True
+    assert settings.langsmith_api_key == "lsv2_pt_test_key_123"
+    assert settings.langchain_api_key == "lsv2_pt_test_key_123"
+    assert settings.langsmith_project == "TestDeskPilot"
+    assert settings.langchain_project == "TestDeskPilot"
+
+    # Test setup_tracing exports to environment
+    monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.delenv("LANGCHAIN_API_KEY", raising=False)
+    monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
+    monkeypatch.delenv("LANGCHAIN_PROJECT", raising=False)
+
+    activated = settings.setup_tracing()
+    assert activated is True
+    assert os.getenv("LANGSMITH_TRACING") == "true"
+    assert os.getenv("LANGCHAIN_TRACING_V2") == "true"
+    assert os.getenv("LANGSMITH_API_KEY") == "lsv2_pt_test_key_123"
+    assert os.getenv("LANGCHAIN_API_KEY") == "lsv2_pt_test_key_123"
+    assert os.getenv("LANGSMITH_PROJECT") == "TestDeskPilot"
+    assert os.getenv("LANGCHAIN_PROJECT") == "TestDeskPilot"
+

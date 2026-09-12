@@ -81,7 +81,7 @@ def parse_notion_page(page: dict[str, Any]) -> ReadLaterItem:
                 break
 
     # 3. Extract Status
-    status = "to be read"
+    status = "To Be Read"
     for name in ("Status", "status"):
         prop = properties.get(name)
         if isinstance(prop, dict):
@@ -180,51 +180,77 @@ async def query_unread_items(
     client: Any = None,
     query_filter: dict[str, Any] | None = None,
 ) -> list[ReadLaterItem]:
-    """Query the Notion database for unread items where status equals 'to be read'.
+    """Query the Notion database for unread items where status equals 'To Be Read'.
 
     Supports both sync and async Notion clients gracefully.
     """
     if not database_id or client is None:
         return []
 
-    if query_filter is None:
-        query_filter = {
-            "property": "Status",
-            "status": {
-                "equals": "to be read",
-            },
-        }
-
-    try:
-        res = client.databases.query(
-            database_id=database_id,
-            filter=query_filter,
-        )
-        if inspect.isawaitable(res):
-            res = await res
-    except Exception:
-        # Fallback 1: Try with select property type filter
+    async def _try_query(endpoint: Any, target_arg: str, target_val: str, filt: dict[str, Any] | None) -> dict[str, Any] | None:
         try:
-            fallback_filter = {
-                "property": "Status",
-                "select": {
-                    "equals": "to be read",
-                },
-            }
-            res = client.databases.query(
-                database_id=database_id,
-                filter=fallback_filter,
-            )
-            if inspect.isawaitable(res):
-                res = await res
+            kwargs = {target_arg: target_val}
+            if filt is not None:
+                kwargs["filter"] = filt
+            out = endpoint(**kwargs)
+            if inspect.isawaitable(out):
+                out = await out
+            if isinstance(out, dict) and "results" in out:
+                return out
         except Exception:
-            # Fallback 2: Try unfiltered query and filter client-side
+            return None
+        return None
+
+    # Resolve endpoint and target ID (support both databases.query and modern data_sources.query)
+    target_arg = "database_id"
+    target_val = database_id
+    query_fn = getattr(getattr(client, "databases", None), "query", None)
+
+    if query_fn is None or not callable(query_fn):
+        # Modern notion-client SDK: query via data_sources
+        if hasattr(client, "databases") and hasattr(client, "data_sources"):
             try:
-                res = client.databases.query(database_id=database_id)
-                if inspect.isawaitable(res):
-                    res = await res
+                db_meta = client.databases.retrieve(database_id=database_id)
+                if inspect.isawaitable(db_meta):
+                    db_meta = await db_meta
+                if isinstance(db_meta, dict) and db_meta.get("data_sources"):
+                    ds_list = db_meta["data_sources"]
+                    if isinstance(ds_list, list) and ds_list:
+                        target_val = ds_list[0].get("id") or database_id
+                        target_arg = "data_source_id"
+                        query_fn = getattr(client.data_sources, "query", None)
             except Exception:
-                return []
+                pass
+
+    if query_fn is None or not callable(query_fn):
+        return []
+
+    res: dict[str, Any] | None = None
+    if query_filter is not None:
+        res = await _try_query(query_fn, target_arg, target_val, query_filter)
+    else:
+        # Query status variant "To Be Read"
+        for val in ["To Be Read"]:
+            res = await _try_query(
+                query_fn,
+                target_arg,
+                target_val,
+                {"property": "Status", "status": {"equals": val}},
+            )
+            if res is not None:
+                break
+            res = await _try_query(
+                query_fn,
+                target_arg,
+                target_val,
+                {"property": "Status", "select": {"equals": val}},
+            )
+            if res is not None:
+                break
+
+    if res is None:
+        # Fallback: query unfiltered and filter client-side
+        res = await _try_query(query_fn, target_arg, target_val, None)
 
     results = res.get("results", []) if isinstance(res, dict) else []
     items: list[ReadLaterItem] = []
@@ -280,3 +306,76 @@ async def update_item_status(
             return True
         except Exception:
             return False
+
+
+async def fetch_page_markdown(page_id: str, client: Any = None) -> str:
+    """Fetch the body blocks of a Notion page and convert them to readable markdown text."""
+    if not page_id or client is None:
+        return ""
+
+    try:
+        blocks_fn = getattr(getattr(client, "blocks", None), "children", None)
+        if blocks_fn is None:
+            return ""
+
+        list_fn = getattr(blocks_fn, "list", None)
+        if list_fn is None or not callable(list_fn):
+            return ""
+
+        res = list_fn(block_id=page_id)
+        if inspect.isawaitable(res):
+            res = await res
+
+        if not isinstance(res, dict):
+            return ""
+
+        blocks = res.get("results", [])
+        lines: list[str] = []
+
+        def _extract_rich_text(elements: list[dict[str, Any]]) -> str:
+            buf = []
+            for elem in elements:
+                if isinstance(elem, dict):
+                    buf.append(elem.get("plain_text") or elem.get("text", {}).get("content", ""))
+            return "".join(buf)
+
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            b_type = block.get("type")
+            data = block.get(b_type, {}) if isinstance(b_type, str) else {}
+            if not isinstance(data, dict):
+                continue
+
+            rich_texts = data.get("rich_text", [])
+            text = _extract_rich_text(rich_texts) if isinstance(rich_texts, list) else ""
+
+            if b_type == "paragraph":
+                lines.append(text + "\n")
+            elif b_type == "heading_1":
+                lines.append(f"# {text}\n")
+            elif b_type == "heading_2":
+                lines.append(f"## {text}\n")
+            elif b_type == "heading_3":
+                lines.append(f"### {text}\n")
+            elif b_type == "bulleted_list_item":
+                lines.append(f"- {text}")
+            elif b_type == "numbered_list_item":
+                lines.append(f"1. {text}")
+            elif b_type == "to_do":
+                checked = "x" if data.get("checked") else " "
+                lines.append(f"- [{checked}] {text}")
+            elif b_type == "quote":
+                lines.append(f"> {text}\n")
+            elif b_type == "code":
+                lang = data.get("language", "")
+                lines.append(f"```{lang}\n{text}\n```\n")
+            elif b_type == "callout":
+                icon = data.get("icon", {}).get("emoji", "💡") if isinstance(data.get("icon"), dict) else "💡"
+                lines.append(f"> {icon} {text}\n")
+            elif text:
+                lines.append(text)
+
+        return "\n".join(lines).strip()
+    except Exception:
+        return ""
