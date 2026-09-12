@@ -1099,3 +1099,87 @@ def test_fetch_existing_database_pages():
     assert fetch_existing_database_pages(mock_client, "db_123") == []
 
 
+def test_sync_screenshot_to_notion_consolidates_into_existing_page(tmp_path: Path):
+    """Verify that when an existing page matches, sync appends section blocks instead of creating a new page."""
+    img_file = _create_dummy_image(tmp_path / "copilot_notes.png")
+    item = ScreenshotItem(
+        path=img_file,
+        filename="copilot_notes.png",
+        title="Copilot Studio Architecture",
+        classification="WORK_NOTES",
+        cluster_tag="Engineering",
+        rationale="Detailed diagram",
+    )
+
+    mock_client = MagicMock()
+    mock_client.file_uploads.create.return_value = {"id": "fu_uploaded_1"}
+    mock_client.file_uploads.send.return_value = {"id": "fu_uploaded_1", "status": "uploaded"}
+
+    page_cache: dict[str, list[dict[str, str]]] = {
+        "db_123": [{"id": "page_copilot_999", "title": "Copilot Studio Architecture Overview"}]
+    }
+
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        database_id="db_123",
+        page_cache=page_cache,
+        consolidate_pages=True,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    # Verify blocks.children.append was called on the matched page ID
+    mock_client.blocks.children.append.assert_called_once()
+    call_kwargs = mock_client.blocks.children.append.call_args[1]
+    assert call_kwargs["block_id"] == "page_copilot_999"
+    children = call_kwargs["children"]
+    assert any(b.get("type") == "image" for b in children)
+    # Ensure pages.create was NOT called
+    mock_client.pages.create.assert_not_called()
+
+
+def test_sync_screenshot_to_notion_creates_new_page_with_image_when_no_match(tmp_path: Path):
+    """Verify that when no existing page matches, sync creates a new page with image block and updates page_cache."""
+    img_file = _create_dummy_image(tmp_path / "new_topic.png")
+    item = ScreenshotItem(
+        path=img_file,
+        filename="new_topic.png",
+        title="Brand New Unrelated Topic",
+        classification="WORK_NOTES",
+        cluster_tag="Research",
+        rationale="New finding",
+    )
+
+    mock_client = MagicMock()
+    mock_client.file_uploads.create.return_value = {"id": "fu_uploaded_2"}
+    mock_client.file_uploads.send.return_value = {"id": "fu_uploaded_2", "status": "uploaded"}
+    mock_client.databases.retrieve.return_value = {"id": "db_123", "properties": {"Name": {"type": "title"}}}
+    mock_client.pages.create.return_value = {"id": "page_new_555"}
+
+    page_cache: dict[str, list[dict[str, str]]] = {
+        "db_123": [{"id": "page_copilot_999", "title": "Copilot Studio Architecture Overview"}]
+    }
+
+    success = sync_screenshot_to_notion(
+        item=item,
+        notion_client=mock_client,
+        database_id="db_123",
+        page_cache=page_cache,
+        consolidate_pages=True,
+    )
+
+    assert success is True
+    assert item.is_synced is True
+    # Verify pages.create was called with image in payload
+    mock_client.pages.create.assert_called_once()
+    create_kwargs = mock_client.pages.create.call_args[1]
+    children = create_kwargs.get("children", [])
+    assert any(b.get("type") == "image" for b in children)
+    # Verify page_cache was updated with newly created page
+    assert {"id": "page_new_555", "title": "Brand New Unrelated Topic"} in page_cache["db_123"]
+    # Ensure blocks.children.append was not called
+    mock_client.blocks.children.append.assert_not_called()
+
+
+

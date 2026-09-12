@@ -398,6 +398,11 @@ def fetch_existing_database_pages(notion_client: Any, database_id: str) -> list[
 
         return existing_pages
     except Exception as exc:
+        err_text = str(exc).lower()
+        is_unauth = any(k in err_text for k in ("unauthorized", "401", "invalid_token", "restricted_service"))
+        is_not_found = any(k in err_text for k in ("object_not_found", "404", "could not find", "validation_error"))
+        if is_unauth or is_not_found:
+            raise exc
         logger.warning("Failed to fetch existing database pages for %s: %s", database_id, exc)
         return []
 
@@ -522,11 +527,15 @@ def sync_screenshot_to_notion(
     destinations: ScreenshotDestinationsConfig | None = None,
     schema_cache: dict[str, Any] | None = None,
     raise_on_error: bool = False,
+    llm: Any = None,
+    page_cache: dict[str, list[dict[str, str]]] | None = None,
+    consolidate_pages: bool = True,
 ) -> bool:
     """Synchronize a single screenshot item to its designated Notion target.
 
     Sets is_synced=True strictly upon verified API success.
     Automatically adapts between page appending and database creation if target is a database.
+    Uploads screenshot image and consolidates into existing database pages when appropriate.
     """
     if notion_client is None:
         item.is_synced = False
@@ -549,24 +558,49 @@ def sync_screenshot_to_notion(
 
     title_text = item.title.strip() if item.title else item.filename
 
+    # Upload screenshot image
+    file_upload_id = upload_screenshot_to_notion(notion_client, item.path)
+
     def _create_database_page(db_id: str) -> bool:
         schema = schema_cache.get(db_id) if schema_cache is not None else None
         if schema is None:
             schema = introspect_database_schema(notion_client, db_id)
             if schema_cache is not None:
                 schema_cache[db_id] = schema
-        payload = build_database_page_payload(item, db_id, schema)
-        notion_client.pages.create(**payload)
+        payload = build_database_page_payload(item, db_id, schema, file_upload_id=file_upload_id)
+        created_page = notion_client.pages.create(**payload)
+        if page_cache is not None and isinstance(created_page, dict):
+            created_id = created_page.get("id")
+            if created_id:
+                page_cache.setdefault(db_id, []).append({"id": created_id, "title": title_text})
         item.is_synced = True
         return True
 
     try:
         if target_type == "database":
+            if consolidate_pages:
+                if page_cache is not None and target_id in page_cache:
+                    existing_pages = page_cache[target_id]
+                else:
+                    existing_pages = fetch_existing_database_pages(notion_client, target_id)
+                    if page_cache is not None:
+                        page_cache[target_id] = existing_pages
+
+                matched_page_id = match_existing_page(item, existing_pages, llm=llm)
+                if matched_page_id:
+                    blocks = build_page_append_section_blocks(item, file_upload_id=file_upload_id)
+                    notion_client.blocks.children.append(
+                        block_id=matched_page_id,
+                        children=blocks,
+                    )
+                    item.is_synced = True
+                    return True
+
             return _create_database_page(target_id)
 
         elif target_type == "page":
             try:
-                blocks = build_page_append_blocks(item)
+                blocks = build_page_append_blocks(item, file_upload_id=file_upload_id)
                 notion_client.blocks.children.append(
                     block_id=target_id,
                     children=blocks,
@@ -612,6 +646,17 @@ def sync_screenshot_to_notion(
                     },
                 },
             ]
+            if file_upload_id:
+                children.append(
+                    {
+                        "object": "block",
+                        "type": "image",
+                        "image": {
+                            "type": "file_upload",
+                            "file_upload": {"id": file_upload_id},
+                        },
+                    }
+                )
             notion_client.pages.create(
                 parent=parent,
                 properties=properties,
@@ -639,6 +684,8 @@ def sync_approved_items(
     destinations: ScreenshotDestinationsConfig | None = None,
     prompt_func: Any = None,
     console_print: Any = None,
+    llm: Any = None,
+    consolidate_pages: bool = True,
 ) -> tuple[int, list[str]]:
     """Synchronize all approved screenshots to their Notion destinations.
 
@@ -650,6 +697,7 @@ def sync_approved_items(
     synced_count = 0
     errors: list[str] = []
     schema_cache: dict[str, Any] = {}
+    page_cache: dict[str, list[dict[str, str]]] = {}
     current_notion_client = notion_client
     current_database_id = database_id
     current_parent_page_id = parent_page_id
@@ -693,6 +741,9 @@ def sync_approved_items(
                         destinations=current_destinations,
                         schema_cache=schema_cache,
                         raise_on_error=True,
+                        llm=llm,
+                        page_cache=page_cache,
+                        consolidate_pages=consolidate_pages,
                     )
                     if success:
                         synced_count += 1

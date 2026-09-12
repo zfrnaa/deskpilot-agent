@@ -170,6 +170,7 @@ def notion_sync(
     destinations: ScreenshotDestinationsConfig | None = None,
     prompt_func: Any = None,
     console_print: Any = None,
+    llm: Any = None,
 ) -> dict[str, Any]:
     """Synchronize approved screenshots to Notion destinations."""
     items = state.get("items", [])
@@ -177,6 +178,7 @@ def notion_sync(
     dests = state.get("destinations", destinations)
     p_func = state.get("prompt_func", prompt_func)
     c_print = state.get("console_print", console_print)
+    selected_llm = state.get("llm", llm)
     synced_count, sync_errors = sync_approved_items(
         items=items,
         approved_cluster_keys=approved,
@@ -186,6 +188,7 @@ def notion_sync(
         destinations=dests,
         prompt_func=p_func,
         console_print=c_print,
+        llm=selected_llm,
     )
     current_errors = list(state.get("errors", [])) + sync_errors
     return {
@@ -251,6 +254,7 @@ def build_screenshot_triage_graph(
             parent_page_id=p_id,
             database_id=db_id,
             destinations=dests,
+            llm=llm,
         )
 
     def _clean(state: ScreenshotAgentState) -> dict[str, Any]:
