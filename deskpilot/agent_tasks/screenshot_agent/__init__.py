@@ -14,6 +14,12 @@ from deskpilot.agent_tasks.screenshot_agent.vision import (
     get_default_vision_llm,
     get_ollama_vision_llm,
 )
+from deskpilot.agent_tasks.screenshot_agent.react_agent import (
+    append_to_page,
+    create_database_page,
+    run_react_consolidation_agent,
+    search_notion,
+)
 
 __all__ = [
     "ScreenshotAgentState",
@@ -24,5 +30,9 @@ __all__ = [
     "check_gemini_quota",
     "get_default_vision_llm",
     "get_ollama_vision_llm",
+    "search_notion",
+    "append_to_page",
+    "create_database_page",
+    "run_react_consolidation_agent",
 ]
 

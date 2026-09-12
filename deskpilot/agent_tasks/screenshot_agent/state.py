@@ -62,7 +62,7 @@ class ScreenshotAgentState(TypedDict, total=False):
 
 def create_initial_state(
     screenshots_dir: Path,
-    max_images: int = 10,
+    max_images: int = 50,
     auto_approve: bool = False,
     delete_synced_local: bool = True,
     destinations: ScreenshotDestinationsConfig | None = None,
