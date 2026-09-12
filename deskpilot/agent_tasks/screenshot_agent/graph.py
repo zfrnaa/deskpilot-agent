@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -9,9 +10,12 @@ from typing import Any, Callable
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+logger = logging.getLogger(__name__)
+
 from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
     SYNCABLE_CLASSIFICATIONS,
     cleanup_synced_files,
+    introspect_database_schema,
     sync_approved_items,
 )
 from deskpilot.agent_tasks.screenshot_agent.state import (
@@ -85,7 +89,8 @@ def vision_triage(
 ) -> dict[str, Any]:
     """Run multimodal classification on screenshot items."""
     items = state.get("items", [])
-    updated_items, triage_errors = triage_screenshots(items, llm=llm)
+    available_tags = state.get("tag_options", [])
+    updated_items, triage_errors = triage_screenshots(items, llm=llm, available_tags=available_tags)
     current_errors = list(state.get("errors", [])) + triage_errors
     return {"items": updated_items, "errors": current_errors}
 
@@ -313,12 +318,23 @@ async def run_screenshot_triage(
         review_func=review_func,
     )
 
+    tag_options: list[str] | None = None
+    if notion_client is not None and settings.notion.enabled:
+        db_id = settings.notion.screenshot_destinations.work_notes_database_id
+        if db_id:
+            try:
+                schema = introspect_database_schema(notion_client, db_id)
+                tag_options = schema.get("tag_options") or None
+            except Exception as e:
+                logger.debug("Failed to introspect database schema for tag options: %s", e)
+
     initial_state = create_initial_state(
         screenshots_dir=settings.screenshots.get_resolved_directory(),
         max_images=settings.screenshots.max_images,
         auto_approve=auto_approve,
         delete_synced_local=settings.screenshots.delete_synced_local,
         destinations=settings.notion.screenshot_destinations,
+        tag_options=tag_options,
         prompt_func=prompt_func,
         console_print=console_print,
     )

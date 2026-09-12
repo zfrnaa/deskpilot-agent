@@ -55,6 +55,7 @@ class ScreenshotAgentState(TypedDict, total=False):
     destinations: ScreenshotDestinationsConfig
     parent_page_id: str
     database_id: str
+    tag_options: list[str]
     prompt_func: Any
     console_print: Any
 
@@ -65,6 +66,7 @@ def create_initial_state(
     auto_approve: bool = False,
     delete_synced_local: bool = True,
     destinations: ScreenshotDestinationsConfig | None = None,
+    tag_options: list[str] | None = None,
     prompt_func: Any = None,
     console_print: Any = None,
 ) -> ScreenshotAgentState:
@@ -83,6 +85,8 @@ def create_initial_state(
     }
     if destinations is not None:
         state["destinations"] = destinations
+    if tag_options is not None:
+        state["tag_options"] = tag_options
     if prompt_func is not None:
         state["prompt_func"] = prompt_func
     if console_print is not None:

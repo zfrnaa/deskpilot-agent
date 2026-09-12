@@ -1253,4 +1253,53 @@ def test_classify_screenshot_uses_available_tags_and_snaps(tmp_path: Path):
     assert updated.cluster_tag == "Python & AI Engineering"
 
 
+@pytest.mark.asyncio
+async def test_run_screenshot_triage_introspects_and_passes_tag_options(tmp_path: Path):
+    """Verify run_screenshot_triage introspects database schema for tag_options and vision_triage uses them."""
+    shot = _create_dummy_image(tmp_path / "firewall.png")
+
+    settings = Settings(
+        _env_file=None,
+        screenshots=ScreenshotsConfig(directory=tmp_path, delete_synced_local=False),
+        notion=NotionConfig(
+            token="mock_token",
+            screenshot_destinations=ScreenshotDestinationsConfig(
+                work_notes_database_id="db_work_sec",
+            ),
+        ),
+    )
+
+    mock_client = MagicMock()
+    mock_client.pages.create.return_value = {"id": "page_sec_1"}
+
+    with patch(
+        "deskpilot.agent_tasks.screenshot_agent.graph.introspect_database_schema"
+    ) as mock_introspect, patch(
+        "deskpilot.agent_tasks.screenshot_agent.graph.triage_screenshots"
+    ) as mock_triage:
+        mock_introspect.return_value = {
+            "title_prop": "Topic",
+            "tag_prop": "Subject",
+            "tag_options": ["CyberSec", "Design"],
+        }
+        # mock triage_screenshots to return the items unchanged and no errors
+        mock_triage.side_effect = lambda items, llm=None, available_tags=None: (items, [])
+
+        mock_llm = MagicMock()
+
+        result_state = await run_screenshot_triage(
+            settings=settings,
+            auto_approve=True,
+            llm=mock_llm,
+            notion_client=mock_client,
+        )
+
+        mock_introspect.assert_called_once_with(mock_client, "db_work_sec")
+        assert result_state.get("tag_options") == ["CyberSec", "Design"]
+        mock_triage.assert_called_once()
+        _, kwargs = mock_triage.call_args
+        assert kwargs.get("available_tags") == ["CyberSec", "Design"]
+
+
+
 
