@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -262,6 +263,219 @@ def build_page_append_blocks(
 
     return blocks
 
+
+def build_page_append_section_blocks(
+    item: ScreenshotItem,
+    file_upload_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Build section blocks (divider, heading_3, details paragraph, optional image) for appending to an existing page."""
+    title_text = item.title.strip() if item.title else item.filename
+    blocks: list[dict[str, Any]] = [
+        {
+            "object": "block",
+            "type": "divider",
+            "divider": {},
+        },
+        {
+            "object": "block",
+            "type": "heading_3",
+            "heading_3": {
+                "rich_text": [{"type": "text", "text": {"content": title_text}}],
+            },
+        },
+        {
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": (
+                                f"Category: {item.cluster_tag}\n"
+                                f"Rationale: {item.rationale or 'N/A'}\n"
+                                f"Source Screenshot: {item.filename}"
+                            )
+                        },
+                    }
+                ],
+            },
+        },
+    ]
+
+    if file_upload_id:
+        blocks.append(
+            {
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "file_upload",
+                    "file_upload": {"id": file_upload_id},
+                },
+            }
+        )
+
+    return blocks
+
+
+def fetch_existing_database_pages(notion_client: Any, database_id: str) -> list[dict[str, str]]:
+    """Fetch existing pages from a Notion database to enable consolidation.
+
+    Returns a list of dicts: [{"id": page_id, "title": page_title}, ...]
+    Returns [] cleanly on any error or if none found.
+    """
+    if notion_client is None or not database_id:
+        return []
+
+    try:
+        pages_raw: list[dict[str, Any]] = []
+
+        # 1. Check database metadata for data_sources
+        db_meta = notion_client.databases.retrieve(database_id=database_id)
+
+        data_sources = db_meta.get("data_sources") if isinstance(db_meta, dict) else None
+        if data_sources and isinstance(data_sources, list) and hasattr(notion_client, "data_sources"):
+            ds_id = data_sources[0].get("id")
+            if ds_id and hasattr(notion_client.data_sources, "query"):
+                try:
+                    resp = notion_client.data_sources.query(data_source_id=ds_id, page_size=100)
+                    if isinstance(resp, dict):
+                        pages_raw = resp.get("results") or []
+                except Exception as ds_err:
+                    logger.debug("data_sources.query failed: %s", ds_err)
+
+        # 2. Fallback: use search endpoint if available
+        if not pages_raw and hasattr(notion_client, "search"):
+            try:
+                search_resp = notion_client.search(
+                    filter={"value": "page", "property": "object"},
+                    page_size=100,
+                )
+                if isinstance(search_resp, dict):
+                    all_results = search_resp.get("results") or []
+                    for p in all_results:
+                        if not isinstance(p, dict):
+                            continue
+                        parent = p.get("parent") or {}
+                        # Match parent database_id or data_source_id
+                        p_db_id = parent.get("database_id", "").replace("-", "")
+                        clean_target_id = database_id.replace("-", "")
+                        if p_db_id and p_db_id == clean_target_id:
+                            pages_raw.append(p)
+                        elif data_sources and isinstance(data_sources, list):
+                            ds_ids = {
+                                ds.get("id", "").replace("-", "")
+                                for ds in data_sources
+                                if isinstance(ds, dict)
+                            }
+                            p_ds_id = parent.get("data_source_id", "").replace("-", "")
+                            if p_ds_id and p_ds_id in ds_ids:
+                                pages_raw.append(p)
+            except Exception as search_err:
+                logger.debug("client.search failed: %s", search_err)
+
+        # Extract titles from pages_raw
+        existing_pages: list[dict[str, str]] = []
+        for page in pages_raw:
+            page_id = page.get("id")
+            if not page_id:
+                continue
+            properties = page.get("properties") or {}
+            title_text = ""
+            for prop in properties.values():
+                if isinstance(prop, dict) and prop.get("type") == "title":
+                    title_list = prop.get("title") or []
+                    if isinstance(title_list, list):
+                        parts = [
+                            t.get("plain_text", "")
+                            for t in title_list
+                            if isinstance(t, dict) and t.get("plain_text")
+                        ]
+                        title_text = "".join(parts).strip()
+                    break
+
+            existing_pages.append({"id": page_id, "title": title_text})
+
+        return existing_pages
+    except Exception as exc:
+        logger.warning("Failed to fetch existing database pages for %s: %s", database_id, exc)
+        return []
+
+
+def match_existing_page(
+    item: ScreenshotItem,
+    existing_pages: list[dict[str, str]],
+    llm: Any = None,
+) -> str | None:
+    """Find a matching existing database page for item consolidation.
+
+    Stage 1: Normalized exact substring or token overlap.
+    Stage 2: LLM verification if token overlap is inconclusive.
+    Returns matched page ID or None.
+    """
+    if not existing_pages:
+        return None
+
+    item_title = (item.title or "").strip()
+    if not item_title:
+        return None
+
+    def _tokenize(text: str) -> set[str]:
+        cleaned = re.sub(r"[^\w\s]", " ", text.lower())
+        return {tok for tok in cleaned.split() if tok}
+
+    item_tokens = _tokenize(item_title)
+    item_title_clean = re.sub(r"[^\w\s]", " ", item_title.lower()).strip()
+
+    # Stage 1: Exact or token overlap
+    for page in existing_pages:
+        p_title = (page.get("title") or "").strip()
+        if not p_title:
+            continue
+        p_title_clean = re.sub(r"[^\w\s]", " ", p_title.lower()).strip()
+
+        # Exact match or normalized substring match
+        if item_title_clean == p_title_clean:
+            return page["id"]
+        if item_title_clean and p_title_clean:
+            if item_title_clean in p_title_clean or p_title_clean in item_title_clean:
+                return page["id"]
+
+        p_tokens = _tokenize(p_title)
+        if item_tokens and p_tokens:
+            intersection = item_tokens & p_tokens
+            min_len = min(len(item_tokens), len(p_tokens))
+            if min_len > 0 and (len(intersection) / min_len) >= 0.75:
+                return page["id"]
+
+    # Stage 2: LLM semantic verification
+    if llm is not None:
+        try:
+            page_titles = [p.get("title", "").strip() for p in existing_pages if p.get("title")]
+            titles_formatted = "\n".join(f"- {t}" for t in page_titles)
+            prompt = (
+                f"You are a Notion database organizer.\n"
+                f"We have a new screenshot item with:\n"
+                f"Title: {item.title}\n"
+                f"Rationale: {item.rationale or 'N/A'}\n\n"
+                f"Existing page titles in database:\n"
+                f"{titles_formatted}\n\n"
+                f"Does this screenshot conceptually belong as an addition to one of these existing pages?\n"
+                f"If YES, respond with ONLY the exact title of the matching page (no markdown, no quotes, no extra words).\n"
+                f"If NO existing page matches, respond with 'NONE'."
+            )
+            response = llm.invoke(prompt)
+            content = response.content if hasattr(response, "content") else str(response)
+            clean_content = content.strip().strip("'\"`")
+
+            if clean_content and clean_content.upper() != "NONE":
+                for page in existing_pages:
+                    if clean_content.lower() == (page.get("title") or "").strip().lower():
+                        return page["id"]
+        except Exception as llm_err:
+            logger.debug("LLM page matching failed: %s", llm_err)
+
+    return None
 
 
 def resolve_destination(

@@ -979,3 +979,123 @@ def test_build_page_append_blocks_with_image(tmp_path: Path):
     assert blocks[2]["image"]["file_upload"]["id"] == "fu_xyz"
 
 
+def test_match_existing_page_exact_and_token_overlap(tmp_path: Path):
+    """Verify token overlap finds existing page without calling LLM."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import match_existing_page
+
+    pages = [
+        {"id": "p1", "title": "Microsoft Copilot Studio Notes"},
+        {"id": "p2", "title": "Job Prospect of an AI Engineer"},
+    ]
+
+    item1 = ScreenshotItem(path=tmp_path / "a.png", title="Job Prospect of an AI Engineer")
+    assert match_existing_page(item1, pages) == "p2"
+
+    item2 = ScreenshotItem(path=tmp_path / "b.png", title="AI Engineer Job Prospects")
+    assert match_existing_page(item2, pages) == "p2"
+
+    item3 = ScreenshotItem(path=tmp_path / "c.png", title="Unrelated Cooking Recipe")
+    assert match_existing_page(item3, pages) is None
+
+
+def test_match_existing_page_llm_verification(tmp_path: Path):
+    """Verify LLM is queried when token overlap is ambiguous."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import match_existing_page
+
+    pages = [{"id": "p1", "title": "AI Engineering Careers & Outlook"}]
+    item = ScreenshotItem(path=tmp_path / "d.png", title="Tech Salary 2026", rationale="AI engineer comp")
+
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value.content = "AI Engineering Careers & Outlook"
+
+    assert match_existing_page(item, pages, llm=mock_llm) == "p1"
+
+    # LLM says NONE
+    mock_llm.invoke.return_value.content = "NONE"
+    assert match_existing_page(item, pages, llm=mock_llm) is None
+
+
+def test_build_page_append_section_blocks(tmp_path: Path):
+    """Verify build_page_append_section_blocks builds divider, heading_3, details paragraph and optional image block."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import build_page_append_section_blocks
+
+    item = ScreenshotItem(path=tmp_path / "shot.png", title="AI Salaries", cluster_tag="Work", rationale="High pay")
+    blocks_no_img = build_page_append_section_blocks(item)
+
+    assert len(blocks_no_img) == 3
+    assert blocks_no_img[0]["type"] == "divider"
+    assert blocks_no_img[1]["type"] == "heading_3"
+    assert blocks_no_img[1]["heading_3"]["rich_text"][0]["text"]["content"] == "AI Salaries"
+    assert blocks_no_img[2]["type"] == "paragraph"
+    assert "Category: Work" in blocks_no_img[2]["paragraph"]["rich_text"][0]["text"]["content"]
+
+    # With image
+    blocks_with_img = build_page_append_section_blocks(item, file_upload_id="fu_789")
+    assert len(blocks_with_img) == 4
+    assert blocks_with_img[3]["type"] == "image"
+    assert blocks_with_img[3]["image"]["file_upload"]["id"] == "fu_789"
+
+
+def test_fetch_existing_database_pages():
+    """Verify fetch_existing_database_pages queries data sources or search and extracts plain title."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import fetch_existing_database_pages
+
+    mock_client = MagicMock()
+
+    # Case 1: database has data_sources, query client.data_sources
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_123",
+        "data_sources": [{"id": "ds_456"}],
+    }
+    mock_client.data_sources.query.return_value = {
+        "results": [
+            {
+                "id": "page_1",
+                "properties": {
+                    "Name": {
+                        "type": "title",
+                        "title": [{"plain_text": "Existing Page 1"}],
+                    }
+                },
+            }
+        ]
+    }
+
+    res = fetch_existing_database_pages(mock_client, "db_123")
+    assert res == [{"id": "page_1", "title": "Existing Page 1"}]
+
+    # Case 2: search fallback
+    delattr(mock_client, "data_sources")
+    mock_client.databases.retrieve.return_value = {"id": "db_123", "data_sources": []}
+    mock_client.search.return_value = {
+        "results": [
+            {
+                "id": "page_2",
+                "parent": {"database_id": "db_123"},
+                "properties": {
+                    "Title": {
+                        "type": "title",
+                        "title": [{"plain_text": "Search Found Page"}],
+                    }
+                },
+            },
+            {
+                "id": "page_other",
+                "parent": {"database_id": "other_db"},
+                "properties": {
+                    "Title": {
+                        "type": "title",
+                        "title": [{"plain_text": "Other Page"}],
+                    }
+                },
+            },
+        ]
+    }
+    res2 = fetch_existing_database_pages(mock_client, "db_123")
+    assert res2 == [{"id": "page_2", "title": "Search Found Page"}]
+
+    # Case 3: Error returns empty list
+    mock_client.databases.retrieve.side_effect = RuntimeError("Notion error")
+    assert fetch_existing_database_pages(mock_client, "db_123") == []
+
+
