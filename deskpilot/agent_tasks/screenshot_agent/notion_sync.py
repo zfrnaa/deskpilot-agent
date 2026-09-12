@@ -344,7 +344,16 @@ def fetch_existing_database_pages(notion_client: Any, database_id: str) -> list[
                 except Exception as ds_err:
                     logger.debug("data_sources.query failed: %s", ds_err)
 
-        # 2. Fallback: use search endpoint if available
+        # 2. Check if client.databases.query exists (standard Notion API)
+        if not pages_raw and hasattr(notion_client.databases, "query"):
+            try:
+                resp = notion_client.databases.query(database_id=database_id, page_size=100)
+                if isinstance(resp, dict):
+                    pages_raw = resp.get("results") or []
+            except Exception as q_err:
+                logger.debug("databases.query failed: %s", q_err)
+
+        # 3. Fallback: use search endpoint if available
         if not pages_raw and hasattr(notion_client, "search"):
             try:
                 search_resp = notion_client.search(
@@ -399,9 +408,8 @@ def fetch_existing_database_pages(notion_client: Any, database_id: str) -> list[
         return existing_pages
     except Exception as exc:
         err_text = str(exc).lower()
-        is_unauth = any(k in err_text for k in ("unauthorized", "401", "invalid_token", "restricted_service"))
-        is_not_found = any(k in err_text for k in ("object_not_found", "404", "could not find", "validation_error"))
-        if is_unauth or is_not_found:
+        # If unauthorized (401) or object_not_found (404), re-raise to trigger interactive prompt recovery
+        if any(k in err_text for k in ("unauthorized", "401", "invalid_token", "object_not_found", "404", "could not find")):
             raise exc
         logger.warning("Failed to fetch existing database pages for %s: %s", database_id, exc)
         return []
@@ -414,7 +422,7 @@ def match_existing_page(
 ) -> str | None:
     """Find a matching existing database page for item consolidation.
 
-    Stage 1: Normalized exact substring or token overlap.
+    Stage 1: Normalized exact match, guarded long substring, or token overlap (filtering stopwords).
     Stage 2: LLM verification if token overlap is inconclusive.
     Returns matched page ID or None.
     """
@@ -425,9 +433,13 @@ def match_existing_page(
     if not item_title:
         return None
 
+    stopwords = {
+        "a", "an", "the", "and", "or", "for", "of", "in", "to", "on", "with", "at", "by", "from",
+    }
+
     def _tokenize(text: str) -> set[str]:
         cleaned = re.sub(r"[^\w\s]", " ", text.lower())
-        return {tok for tok in cleaned.split() if tok}
+        return {tok for tok in cleaned.split() if tok and tok not in stopwords}
 
     item_tokens = _tokenize(item_title)
     item_title_clean = re.sub(r"[^\w\s]", " ", item_title.lower()).strip()
@@ -439,10 +451,12 @@ def match_existing_page(
             continue
         p_title_clean = re.sub(r"[^\w\s]", " ", p_title.lower()).strip()
 
-        # Exact match or normalized substring match
+        # Exact match
         if item_title_clean == p_title_clean:
             return page["id"]
-        if item_title_clean and p_title_clean:
+
+        # Only allow substring match if both titles are substantial (at least 3 words) to avoid false positives
+        if len(item_title_clean.split()) >= 3 and len(p_title_clean.split()) >= 3:
             if item_title_clean in p_title_clean or p_title_clean in item_title_clean:
                 return page["id"]
 
