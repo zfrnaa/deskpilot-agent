@@ -30,6 +30,7 @@ from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotAgentState, S
 from deskpilot.agent_tasks.screenshot_agent.vision import (
     classify_screenshot,
     encode_image_to_base64,
+    get_default_vision_llm,
     triage_screenshots,
 )
 
@@ -716,3 +717,100 @@ def test_sync_screenshot_to_notion_falls_back_to_database_when_page_append_fails
     assert "Question" in payload["properties"]
 
 
+def test_get_default_vision_llm_ollama_fallback():
+    """Verify get_default_vision_llm initializes Ollama or returns None gracefully."""
+    # When no keys and no ollama specified, returns None
+    assert get_default_vision_llm(gemini_api_key=None, ollama_model=None, ollama_url=None) is None
+
+    # When Ollama is specified, attempts loading ChatOllama
+    with patch("langchain_ollama.ChatOllama", create=True) as mock_chat_ollama:
+        llm = get_default_vision_llm(
+            gemini_api_key=None,
+            ollama_model="bakllava",
+            ollama_url="http://localhost:11434",
+        )
+        assert llm is not None
+
+
+def test_get_ollama_vision_llm_instantiation():
+    """Verify get_ollama_vision_llm returns a ChatOllama instance with configured model and url."""
+    from deskpilot.agent_tasks.screenshot_agent.vision import get_ollama_vision_llm
+
+    llm = get_ollama_vision_llm(ollama_model="bakllava", ollama_url="http://localhost:11434")
+    assert llm is not None
+    assert getattr(llm, "model", None) == "bakllava"
+
+
+def test_check_gemini_quota_empty_key():
+    """Verify check_gemini_quota returns False immediately if key is empty."""
+    from deskpilot.agent_tasks.screenshot_agent.vision import check_gemini_quota
+
+    assert check_gemini_quota(gemini_api_key="") is False
+
+
+def test_check_gemini_quota_success_and_exhaustion():
+    """Verify check_gemini_quota returns True on successful invoke, False on 429 / quota error."""
+    from deskpilot.agent_tasks.screenshot_agent.vision import check_gemini_quota
+
+    mock_probe = MagicMock()
+    mock_probe.invoke.return_value = "pong"
+
+    with patch("langchain_google_genai.ChatGoogleGenerativeAI", return_value=mock_probe):
+        assert check_gemini_quota(gemini_api_key="valid_key") is True
+        mock_probe.invoke.assert_called_once_with("ping")
+
+    # Simulate quota exhaustion
+    mock_failing_probe = MagicMock()
+    mock_failing_probe.invoke.side_effect = RuntimeError("ResourceExhausted: 429 Quota exceeded")
+
+    with patch("langchain_google_genai.ChatGoogleGenerativeAI", return_value=mock_failing_probe):
+        assert check_gemini_quota(gemini_api_key="valid_key") is False
+
+
+def test_parse_vision_response_strict_json():
+    from deskpilot.agent_tasks.screenshot_agent.vision import parse_vision_response
+
+    raw = '{"classification": "WORK_NOTES", "title": "System Architecture", "cluster_tag": "Dev", "rationale": "High-level diagram"}'
+    parsed = parse_vision_response(raw)
+    assert parsed["classification"] == "WORK_NOTES"
+    assert parsed["title"] == "System Architecture"
+    assert parsed["cluster_tag"] == "Dev"
+    assert parsed["rationale"] == "High-level diagram"
+
+
+def test_parse_vision_response_markdown_and_conversational():
+    from deskpilot.agent_tasks.screenshot_agent.vision import parse_vision_response
+
+    raw = """Here is your classification:
+```json
+{
+  "classification": "BRAINSTORM",
+  "title": "Q3 Brainstorming Whiteboard",
+  "cluster_tag": "Ideas",
+  "rationale": "Sticky notes and diagrams"
+}
+```
+Hope that helps!"""
+    parsed = parse_vision_response(raw)
+    assert parsed["classification"] == "BRAINSTORM"
+    assert parsed["title"] == "Q3 Brainstorming Whiteboard"
+    assert parsed["cluster_tag"] == "Ideas"
+
+
+def test_parse_vision_response_regex_fuzzy_extraction_on_broken_json():
+    from deskpilot.agent_tasks.screenshot_agent.vision import parse_vision_response
+
+    # Malformed JSON (missing closing braces, unescaped quote in rationale)
+    raw = '{"classification": "DUE_DILIGENCE", "title": "SOC2 Questionnaire", "cluster_tag": "Compliance", "rationale": "Vendor said "approved" here'
+    parsed = parse_vision_response(raw)
+    assert parsed["classification"] == "DUE_DILIGENCE"
+    assert parsed["title"] == "SOC2 Questionnaire"
+    assert parsed["cluster_tag"] == "Compliance"
+
+
+def test_parse_vision_response_heuristic_fallback():
+    from deskpilot.agent_tasks.screenshot_agent.vision import parse_vision_response
+
+    raw = "Based on the image, this is clearly a WORK_NOTES screenshot showing terminal commands."
+    parsed = parse_vision_response(raw)
+    assert parsed["classification"] == "WORK_NOTES"
