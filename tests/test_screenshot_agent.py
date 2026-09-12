@@ -898,3 +898,84 @@ def test_sync_approved_items_empty_prompt_finishes_without_notion(tmp_path: Path
         for err in errors
     )
 
+
+def test_upload_screenshot_to_notion_success(tmp_path: Path):
+    """Verify upload_screenshot_to_notion creates and sends file via notion_client."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import upload_screenshot_to_notion
+
+    img_file = tmp_path / "test.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\nfakecontent")
+
+    mock_client = MagicMock()
+    mock_client.file_uploads.create.return_value = {"id": "fu_123"}
+    mock_client.file_uploads.send.return_value = {"id": "fu_123", "status": "uploaded"}
+
+    file_id = upload_screenshot_to_notion(mock_client, img_file)
+    assert file_id == "fu_123"
+    mock_client.file_uploads.create.assert_called_once_with(filename="test.png", content_type="image/png")
+    mock_client.file_uploads.send.assert_called_once()
+
+
+def test_upload_screenshot_to_notion_jpeg_success(tmp_path: Path):
+    """Verify upload_screenshot_to_notion correctly detects JPEG mime type."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import upload_screenshot_to_notion
+
+    img_file = tmp_path / "test.jpeg"
+    img_file.write_bytes(b"\xff\xd8\xfffakecontent")
+
+    mock_client = MagicMock()
+    mock_client.file_uploads.create.return_value = {"id": "fu_jpeg_456"}
+    mock_client.file_uploads.send.return_value = {"id": "fu_jpeg_456"}
+
+    file_id = upload_screenshot_to_notion(mock_client, img_file)
+    assert file_id == "fu_jpeg_456"
+    mock_client.file_uploads.create.assert_called_once_with(filename="test.jpeg", content_type="image/jpeg")
+
+
+def test_upload_screenshot_to_notion_error_returns_none(tmp_path: Path):
+    """Verify upload_screenshot_to_notion returns None on missing file or API error without raising."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import upload_screenshot_to_notion
+
+    # Case 1: Missing file
+    img_file = tmp_path / "missing.png"
+    mock_client = MagicMock()
+    file_id = upload_screenshot_to_notion(mock_client, img_file)
+    assert file_id is None
+
+    # Case 2: API error during upload
+    real_file = tmp_path / "exists.png"
+    real_file.write_bytes(b"data")
+    mock_client.file_uploads.create.side_effect = RuntimeError("Notion file upload failed")
+    file_id = upload_screenshot_to_notion(mock_client, real_file)
+    assert file_id is None
+
+
+def test_build_database_page_payload_with_image(tmp_path: Path):
+    """Verify image block is included in children blocks below details paragraph."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import build_database_page_payload
+
+    item = ScreenshotItem(path=tmp_path / "shot.png", title="Test Title", cluster_tag="Work")
+    payload = build_database_page_payload(item, database_id="db_1", schema={}, file_upload_id="fu_abc")
+
+    children = payload.get("children", [])
+    assert len(children) == 3
+    assert children[0]["type"] == "heading_2"
+    assert children[1]["type"] == "paragraph"
+    assert children[2]["type"] == "image"
+    assert children[2]["image"]["file_upload"]["id"] == "fu_abc"
+
+
+def test_build_page_append_blocks_with_image(tmp_path: Path):
+    """Verify image block is appended to blocks when file_upload_id is provided."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import build_page_append_blocks
+
+    item = ScreenshotItem(path=tmp_path / "shot.png", title="Test Title", cluster_tag="Work")
+    blocks = build_page_append_blocks(item, file_upload_id="fu_xyz")
+
+    assert len(blocks) == 3
+    assert blocks[0]["type"] == "callout"
+    assert blocks[1]["type"] == "paragraph"
+    assert blocks[2]["type"] == "image"
+    assert blocks[2]["image"]["file_upload"]["id"] == "fu_xyz"
+
+

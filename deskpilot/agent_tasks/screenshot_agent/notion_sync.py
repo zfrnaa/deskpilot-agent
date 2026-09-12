@@ -2,13 +2,49 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotItem
 from deskpilot.config import ScreenshotDestinationsConfig
 
+logger = logging.getLogger(__name__)
+
 SYNCABLE_CLASSIFICATIONS = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "NOTION_NOTE"}
+
+
+def upload_screenshot_to_notion(notion_client: Any, image_path: Path) -> str | None:
+    """Upload a screenshot image to Notion using the file_uploads endpoint.
+
+    Returns the file upload ID if successful, or None if the file is missing or upload fails.
+    """
+    if not image_path.exists():
+        logger.warning("Cannot upload screenshot to Notion: file not found at %s", image_path)
+        return None
+
+    ext = image_path.suffix.lower()
+    if ext == ".png":
+        content_type = "image/png"
+    elif ext in (".jpg", ".jpeg"):
+        content_type = "image/jpeg"
+    else:
+        content_type = "application/octet-stream"
+
+    try:
+        fu = notion_client.file_uploads.create(filename=image_path.name, content_type=content_type)
+        upload_id = fu.get("id") if isinstance(fu, dict) else getattr(fu, "id", None)
+        if not upload_id:
+            logger.warning("Notion file_uploads.create returned no id for %s", image_path.name)
+            return None
+
+        file_bytes = image_path.read_bytes()
+        notion_client.file_uploads.send(upload_id, file=(image_path.name, file_bytes, content_type))
+        return upload_id
+    except Exception as exc:
+        logger.warning("Failed to upload screenshot %s to Notion: %s", image_path.name, exc)
+        return None
 
 
 def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str, Any]:
@@ -96,6 +132,7 @@ def build_database_page_payload(
     item: ScreenshotItem,
     database_id: str,
     schema: dict[str, Any],
+    file_upload_id: str | None = None,
 ) -> dict[str, Any]:
     """Construct Notion pages.create payload matching introspected database schema."""
     title_text = item.title.strip() if item.title else item.filename
@@ -148,6 +185,18 @@ def build_database_page_payload(
         },
     ]
 
+    if file_upload_id:
+        children.append(
+            {
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "file_upload",
+                    "file_upload": {"id": file_upload_id},
+                },
+            }
+        )
+
     return {
         "parent": {"database_id": database_id},
         "properties": properties,
@@ -155,11 +204,14 @@ def build_database_page_payload(
     }
 
 
-def build_page_append_blocks(item: ScreenshotItem) -> list[dict[str, Any]]:
+def build_page_append_blocks(
+    item: ScreenshotItem,
+    file_upload_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Build callout and text blocks for appending to a Notion page."""
     title_text = item.title.strip() if item.title else item.filename
     emoji = "💡" if item.classification == "BRAINSTORM" else "📋"
-    return [
+    blocks: list[dict[str, Any]] = [
         {
             "object": "block",
             "type": "callout",
@@ -195,6 +247,21 @@ def build_page_append_blocks(item: ScreenshotItem) -> list[dict[str, Any]]:
             },
         },
     ]
+
+    if file_upload_id:
+        blocks.append(
+            {
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "file_upload",
+                    "file_upload": {"id": file_upload_id},
+                },
+            }
+        )
+
+    return blocks
+
 
 
 def resolve_destination(
