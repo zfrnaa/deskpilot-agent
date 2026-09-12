@@ -77,7 +77,7 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
     tag_type: str | None = None
     date_prop: str | None = None
 
-    tag_preferred = ["tags", "category", "topic", "area", "tag"]
+    tag_preferred = ["subject", "tags", "category", "topic", "area", "tag"]
     date_preferred = ["date", "created", "created date", "date created"]
 
     # 1. Find title property
@@ -175,9 +175,7 @@ def build_database_page_payload(
                         "type": "text",
                         "text": {
                             "content": (
-                                f"Category: {item.cluster_tag}\n"
-                                f"Rationale: {item.rationale or 'N/A'}\n"
-                                f"Source Screenshot: {item.filename}"
+                                f"Rationale: {item.rationale or 'N/A'}"
                             )
                         },
                     }
@@ -292,9 +290,7 @@ def build_page_append_section_blocks(
                         "type": "text",
                         "text": {
                             "content": (
-                                f"Category: {item.cluster_tag}\n"
-                                f"Rationale: {item.rationale or 'N/A'}\n"
-                                f"Source Screenshot: {item.filename}"
+                                f"Rationale: {item.rationale or 'N/A'}"
                             )
                         },
                     }
@@ -650,9 +646,7 @@ def sync_screenshot_to_notion(
                                 "type": "text",
                                 "text": {
                                     "content": (
-                                        f"Category: {item.cluster_tag}\n"
-                                        f"Rationale: {item.rationale or 'N/A'}\n"
-                                        f"Source Screenshot: {item.filename}"
+                                        f"Rationale: {item.rationale or 'N/A'}"
                                     )
                                 },
                             }

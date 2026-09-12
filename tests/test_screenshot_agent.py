@@ -682,6 +682,26 @@ def test_introspect_database_schema_via_data_sources():
     assert schema["date_prop"] == "Date Added"
 
 
+def test_introspect_database_schema_maps_subject_property():
+    """Verify introspect_database_schema recognizes 'Subject' as tag/category property."""
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.return_value = {
+        "id": "db_worknotes",
+        "properties": {
+            "Title": {"type": "title", "id": "title"},
+            "Subject": {"type": "multi_select"},
+            "Last Review": {"type": "date"},
+        },
+    }
+
+    schema = introspect_database_schema(mock_client, "db_worknotes")
+    assert schema["title_prop"] == "Title"
+    assert schema["tag_prop"] == "Subject"
+    assert schema["tag_type"] == "multi_select"
+    assert schema["date_prop"] == "Last Review"
+
+
+
 def test_sync_screenshot_to_notion_falls_back_to_database_when_page_append_fails(tmp_path: Path):
     """Verify when a destination was assumed to be a page but is actually a database, it automatically creates a DB page."""
     img_path = _create_dummy_image(tmp_path / "due_diligence_sheet.png")
@@ -961,6 +981,10 @@ def test_build_database_page_payload_with_image(tmp_path: Path):
     assert len(children) == 3
     assert children[0]["type"] == "heading_2"
     assert children[1]["type"] == "paragraph"
+    para_content = children[1]["paragraph"]["rich_text"][0]["text"]["content"]
+    assert "Rationale:" in para_content
+    assert "Category:" not in para_content
+    assert "Source Screenshot:" not in para_content
     assert children[2]["type"] == "image"
     assert children[2]["image"]["file_upload"]["id"] == "fu_abc"
 
@@ -1027,7 +1051,10 @@ def test_build_page_append_section_blocks(tmp_path: Path):
     assert blocks_no_img[1]["type"] == "heading_3"
     assert blocks_no_img[1]["heading_3"]["rich_text"][0]["text"]["content"] == "AI Salaries"
     assert blocks_no_img[2]["type"] == "paragraph"
-    assert "Category: Work" in blocks_no_img[2]["paragraph"]["rich_text"][0]["text"]["content"]
+    content_text = blocks_no_img[2]["paragraph"]["rich_text"][0]["text"]["content"]
+    assert "Rationale: High pay" in content_text
+    assert "Category:" not in content_text
+    assert "Source Screenshot:" not in content_text
 
     # With image
     blocks_with_img = build_page_append_section_blocks(item, file_upload_id="fu_789")

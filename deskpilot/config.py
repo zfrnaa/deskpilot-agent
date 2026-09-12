@@ -92,7 +92,7 @@ class ScreenshotsConfig(BaseModel):
     enabled: bool = True
     directory: Path = Path("~/Pictures/Screenshots")
     delete_synced_local: bool = True
-    max_images: int = 50
+    max_images: int = 10
 
     def get_resolved_directory(self) -> Path:
         """Return resolved path to the screenshots folder."""

@@ -54,7 +54,7 @@ def scan_screenshots(state: ScreenshotAgentState) -> dict[str, Any]:
     image_files.sort(key=lambda p: p.name.lower())
 
     total_discovered = len(image_files)
-    max_imgs = state.get("max_images", 50)
+    max_imgs = state.get("max_images", 10)
     selected_files = image_files[:max_imgs] if max_imgs > 0 else image_files
 
     try:
