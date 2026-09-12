@@ -43,24 +43,108 @@ def _suppress_afc_warning() -> None:
         pass
 
 
+def get_ollama_vision_llm(
+    ollama_model: str = "bakllava",
+    ollama_url: str = "http://localhost:11434",
+) -> Any:
+    """Instantiate and return Ollama Chat model for vision classification."""
+    try:
+        from langchain_ollama import ChatOllama
+
+        return ChatOllama(
+            model=ollama_model or "bakllava",
+            base_url=ollama_url or "http://localhost:11434",
+            temperature=0.1,
+        )
+    except ImportError:
+        try:
+            from langchain_community.chat_models import ChatOllama
+
+            return ChatOllama(
+                model=ollama_model or "bakllava",
+                base_url=ollama_url or "http://localhost:11434",
+                temperature=0.1,
+            )
+        except Exception:
+            return None
+
+
+def check_gemini_quota(
+    gemini_api_key: str | None = None,
+    model: str = "gemini-3.8-flash",
+) -> bool:
+    """Pre-flight check whether Gemini API key is valid and has available quota/credits.
+
+    Sends a lightweight invocation ("ping") with a strict timeout.
+    Returns True if response received successfully, False if quota/credits exhausted,
+    rate-limited, model unavailable, or key missing/invalid.
+    """
+    key = gemini_api_key or os.getenv("GEMINI_API_KEY", "")
+    if not key:
+        return False
+
+    try:
+        _suppress_afc_warning()
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        probe_llm = ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=key,
+            temperature=0.0,
+            timeout=8,
+            max_retries=1,
+        )
+        # Perform minimal probe
+        probe_llm.invoke("ping")
+        return True
+    except Exception as e:
+        err_msg = str(e).lower()
+        quota_keywords = (
+            "quota",
+            "resource_exhausted",
+            "429",
+            "exhausted",
+            "credit",
+            "rate limit",
+            "not_found",
+            "invalid",
+            "unauthenticated",
+            "permission",
+            "403",
+            "404",
+        )
+        if any(kw in err_msg for kw in quota_keywords):
+            return False
+        # Treat any network failure or unexpected exception during probe as unavailable
+        return False
+
+
 def get_default_vision_llm(
     gemini_api_key: str | None = None,
     model: str = "gemini-3.8-flash",
+    ollama_model: str | None = None,
+    ollama_url: str | None = None,
 ) -> Any:
-    """Lazy-load and instantiate Google GenAI Chat model for multimodal vision triage."""
+    """Lazy-load and instantiate vision Chat model (Gemini or Ollama) for multimodal vision triage."""
     key = gemini_api_key or os.getenv("GEMINI_API_KEY", "")
-    if not key:
-        return None
+    if key:
+        _suppress_afc_warning()
+        from langchain_google_genai import ChatGoogleGenerativeAI
 
-    _suppress_afc_warning()
+        return ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=key,
+            temperature=0.1,
+        )
 
-    from langchain_google_genai import ChatGoogleGenerativeAI
+    # If no Gemini key is provided, check if Ollama is configured
+    if ollama_model or ollama_url:
+        return get_ollama_vision_llm(
+            ollama_model=ollama_model or "bakllava",
+            ollama_url=ollama_url or "http://localhost:11434",
+        )
 
-    return ChatGoogleGenerativeAI(
-        model=model,
-        google_api_key=key,
-        temperature=0.1,
-    )
+    return None
 
 
 @traceable(name="classify_screenshot")
@@ -79,7 +163,7 @@ def classify_screenshot(
 
     if llm is None:
         item.classification = "LOCAL_KEEP"
-        item.rationale = "Vision LLM not configured (missing GEMINI_API_KEY)"
+        item.rationale = "Vision LLM not configured (missing GEMINI_API_KEY and Ollama configuration)"
         return item
 
     valid_classifications = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "LOCAL_KEEP", "NOTION_NOTE"}
@@ -140,7 +224,30 @@ def classify_screenshot(
                 ]
             )
 
-            response = llm.invoke([message])
+            try:
+                response = llm.invoke([message])
+            except Exception as invoke_err:
+                err_msg = str(invoke_err).lower()
+                is_quota_or_gemini = any(
+                    kw in err_msg
+                    for kw in ("quota", "resource_exhausted", "429", "exhausted", "credit", "rate limit")
+                ) or ("google" in llm.__class__.__module__.lower() or "gemini" in llm.__class__.__name__.lower())
+
+                if is_quota_or_gemini:
+                    # Attempt automatic fallback to Ollama BakLLaVA
+                    ollama_llm = get_default_vision_llm(gemini_api_key="", ollama_model="bakllava")
+                    if ollama_llm is not None:
+                        try:
+                            response = ollama_llm.invoke([message])
+                        except Exception as fallback_err:
+                            raise RuntimeError(
+                                f"Gemini failed ({invoke_err}); Ollama fallback also failed: {fallback_err}"
+                            ) from invoke_err
+                    else:
+                        raise invoke_err
+                else:
+                    raise invoke_err
+
             content = getattr(response, "content", response)
             if isinstance(content, list):
                 parts = [p.get("text", "") if isinstance(p, dict) else str(p) for p in content]
@@ -148,39 +255,102 @@ def classify_screenshot(
             elif not isinstance(content, str):
                 content = str(content)
 
-            # Strip markdown code blocks
-            raw_text = content.strip()
-            if raw_text.startswith("```"):
-                lines = raw_text.split("\n")
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                raw_text = "\n".join(lines).strip()
-
-            parsed = None
-            try:
-                parsed = json.loads(raw_text)
-            except json.JSONDecodeError:
-                match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-                if match:
-                    parsed = json.loads(match.group(0))
-
-            if isinstance(parsed, dict):
-                cls_val = parsed.get("classification", "LOCAL_KEEP")
-                item.classification = cls_val if cls_val in valid_classifications else "LOCAL_KEEP"
-                item.title = str(parsed.get("title", item.filename))
-                item.cluster_tag = str(parsed.get("cluster_tag", fallback_tag))
-                item.rationale = str(parsed.get("rationale", ""))
-            else:
-                item.classification = "LOCAL_KEEP"
-                item.rationale = "Could not parse JSON response from vision model"
+            parsed = parse_vision_response(
+                content=content,
+                fallback_tag=fallback_tag,
+                filename=item.filename,
+            )
+            item.classification = parsed["classification"]
+            item.title = parsed["title"]
+            item.cluster_tag = parsed["cluster_tag"]
+            item.rationale = parsed["rationale"]
         except Exception as e:
             item.classification = "LOCAL_KEEP"
             item.cluster_tag = fallback_tag
             item.rationale = f"Error during vision classification: {e}"
 
     return item
+
+
+def parse_vision_response(
+    content: str,
+    fallback_tag: str = "General",
+    filename: str = "",
+) -> dict[str, str]:
+    """Parse model response using strict JSON, regex fuzzy matching, or heuristic fallback."""
+    valid_classifications = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "LOCAL_KEEP", "NOTION_NOTE"}
+    raw_text = content.strip()
+
+    # 1. Strip markdown code blocks if present
+    if "```" in raw_text:
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw_text)
+        if match:
+            raw_text = match.group(1).strip()
+        else:
+            lines = raw_text.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            raw_text = "\n".join(lines).strip()
+
+    parsed_dict: dict[str, Any] = {}
+
+    # Stage 1: Strict JSON parsing
+    try:
+        loaded = json.loads(raw_text)
+        if isinstance(loaded, dict):
+            parsed_dict = loaded
+    except Exception:
+        brace_match = re.search(r"\{[\s\S]*\}", raw_text)
+        if brace_match:
+            try:
+                loaded = json.loads(brace_match.group(0))
+                if isinstance(loaded, dict):
+                    parsed_dict = loaded
+            except Exception:
+                parsed_dict = {}
+
+    # Stage 2: Regex fuzzy key-value extraction if strict parse failed
+    if not parsed_dict:
+        cls_m = re.search(r'"?classification"?\s*[:=]\s*"?([A-Z_]+)"?', raw_text, re.IGNORECASE)
+        title_m = re.search(r'"?title"?\s*[:=]\s*"([^"\n]+)"', raw_text, re.IGNORECASE)
+        tag_m = re.search(r'"?cluster_tag"?\s*[:=]\s*"([^"\n]+)"', raw_text, re.IGNORECASE)
+        rat_m = re.search(r'"?rationale"?\s*[:=]\s*"([^"\n]+)"', raw_text, re.IGNORECASE)
+
+        if cls_m:
+            parsed_dict["classification"] = cls_m.group(1).upper()
+        if title_m:
+            parsed_dict["title"] = title_m.group(1).strip()
+        if tag_m:
+            parsed_dict["cluster_tag"] = tag_m.group(1).strip()
+        if rat_m:
+            parsed_dict["rationale"] = rat_m.group(1).strip()
+
+    # Stage 3: Heuristic token scan if still unclassified
+    if "classification" not in parsed_dict or parsed_dict["classification"] not in valid_classifications:
+        for candidate in ("WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "NOTION_NOTE", "LOCAL_KEEP"):
+            if candidate in raw_text.upper():
+                parsed_dict["classification"] = candidate
+                break
+
+    # Build final standardized result
+    classification = parsed_dict.get("classification")
+    if classification in valid_classifications:
+        return {
+            "classification": classification,
+            "title": str(parsed_dict.get("title") or filename or "Screenshot Note"),
+            "cluster_tag": str(parsed_dict.get("cluster_tag") or fallback_tag),
+            "rationale": str(parsed_dict.get("rationale") or "Classified from vision response"),
+        }
+
+    return {
+        "classification": "LOCAL_KEEP",
+        "title": filename or "Screenshot Note",
+        "cluster_tag": fallback_tag,
+        "rationale": "Error: Could not parse JSON response from vision model",
+    }
+
 
 
 @traceable(name="triage_screenshots")
