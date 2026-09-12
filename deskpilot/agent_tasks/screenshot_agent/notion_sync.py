@@ -20,23 +20,20 @@ def introspect_database_schema(notion_client: Any, database_id: str) -> dict[str
     - Date property (type == "date", prioritizing Date, Created)
     """
     properties: dict[str, Any] = {}
-    try:
-        db_meta = notion_client.databases.retrieve(database_id=database_id)
-        if isinstance(db_meta, dict):
-            properties = db_meta.get("properties") or {}
-            if not properties and db_meta.get("data_sources"):
-                data_sources = db_meta["data_sources"]
-                if isinstance(data_sources, list) and data_sources:
-                    ds_id = data_sources[0].get("id")
-                    if ds_id and hasattr(notion_client, "data_sources"):
-                        try:
-                            ds_meta = notion_client.data_sources.retrieve(data_source_id=ds_id)
-                            if isinstance(ds_meta, dict):
-                                properties = ds_meta.get("properties") or {}
-                        except Exception:
-                            pass
-    except Exception:
-        properties = {}
+    db_meta = notion_client.databases.retrieve(database_id=database_id)
+    if isinstance(db_meta, dict):
+        properties = db_meta.get("properties") or {}
+        if not properties and db_meta.get("data_sources"):
+            data_sources = db_meta["data_sources"]
+            if isinstance(data_sources, list) and data_sources:
+                ds_id = data_sources[0].get("id")
+                if ds_id and hasattr(notion_client, "data_sources"):
+                    try:
+                        ds_meta = notion_client.data_sources.retrieve(data_source_id=ds_id)
+                        if isinstance(ds_meta, dict):
+                            properties = ds_meta.get("properties") or {}
+                    except Exception:
+                        pass
 
     title_prop: str | None = None
     tag_prop: str | None = None
@@ -243,6 +240,7 @@ def sync_screenshot_to_notion(
     database_id: str = "",
     destinations: ScreenshotDestinationsConfig | None = None,
     schema_cache: dict[str, Any] | None = None,
+    raise_on_error: bool = False,
 ) -> bool:
     """Synchronize a single screenshot item to its designated Notion target.
 
@@ -273,10 +271,7 @@ def sync_screenshot_to_notion(
     def _create_database_page(db_id: str) -> bool:
         schema = schema_cache.get(db_id) if schema_cache is not None else None
         if schema is None:
-            try:
-                schema = introspect_database_schema(notion_client, db_id)
-            except Exception:
-                schema = {"title_prop": "Name"}
+            schema = introspect_database_schema(notion_client, db_id)
             if schema_cache is not None:
                 schema_cache[db_id] = schema
         payload = build_database_page_payload(item, db_id, schema)
@@ -344,8 +339,10 @@ def sync_screenshot_to_notion(
             item.is_synced = True
             return True
 
-    except Exception:
+    except Exception as exc:
         item.is_synced = False
+        if raise_on_error:
+            raise exc
         return False
 
     item.is_synced = False
@@ -359,47 +356,121 @@ def sync_approved_items(
     parent_page_id: str = "",
     database_id: str = "",
     destinations: ScreenshotDestinationsConfig | None = None,
+    prompt_func: Any = None,
+    console_print: Any = None,
 ) -> tuple[int, list[str]]:
     """Synchronize all approved screenshots to their Notion destinations.
 
-    Returns the count of successfully synced items and any error messages encountered.
+    Supports interactive recovery when prompt_func is provided:
+    - On 401/unauthorized error: prompts user for a corrected Notion API token.
+    - On 404/not_found error: prompts user for a corrected Database or Target ID.
+    - If user enters empty string (presses Enter), gracefully finishes without passing to Notion.
     """
     synced_count = 0
     errors: list[str] = []
     schema_cache: dict[str, Any] = {}
+    current_notion_client = notion_client
+    current_database_id = database_id
+    current_parent_page_id = parent_page_id
+    current_destinations = destinations
+    skip_all_remaining_notion = False
 
-    if notion_client is None:
+    if current_notion_client is None:
         return 0, ["Notion client is not configured or disabled"]
 
+    def _print(msg: str) -> None:
+        if callable(console_print):
+            console_print(msg)
+        else:
+            print(msg)
+
     for item in items:
+        if skip_all_remaining_notion:
+            item.is_synced = False
+            continue
+
         if item.classification in SYNCABLE_CLASSIFICATIONS and item.cluster_tag in approved_cluster_keys:
             target_id, _ = resolve_destination(
                 classification=item.classification,
-                destinations=destinations,
-                database_id=database_id,
-                parent_page_id=parent_page_id,
+                destinations=current_destinations,
+                database_id=current_database_id,
+                parent_page_id=current_parent_page_id,
             )
             if not target_id:
                 item.is_synced = False
                 errors.append(f"Destination ID not configured for category {item.classification}")
                 continue
 
-            try:
-                success = sync_screenshot_to_notion(
-                    item=item,
-                    notion_client=notion_client,
-                    parent_page_id=parent_page_id,
-                    database_id=database_id,
-                    destinations=destinations,
-                    schema_cache=schema_cache,
-                )
-                if success:
-                    synced_count += 1
-                else:
-                    errors.append(f"Failed to sync {item.filename} to Notion target {target_id}")
-            except Exception as e:
-                item.is_synced = False
-                errors.append(f"Unexpected error syncing {item.filename}: {e}")
+            max_attempts = 2 if callable(prompt_func) else 1
+            for attempt in range(max_attempts):
+                try:
+                    success = sync_screenshot_to_notion(
+                        item=item,
+                        notion_client=current_notion_client,
+                        parent_page_id=current_parent_page_id,
+                        database_id=current_database_id,
+                        destinations=current_destinations,
+                        schema_cache=schema_cache,
+                        raise_on_error=True,
+                    )
+                    if success:
+                        synced_count += 1
+                        break
+                    else:
+                        errors.append(f"Failed to sync {item.filename} to Notion target {target_id}")
+                        break
+                except Exception as sync_err:
+                    err_text = str(sync_err).lower()
+                    is_unauth = any(k in err_text for k in ("unauthorized", "401", "invalid_token", "restricted_service"))
+                    is_not_found = any(k in err_text for k in ("object_not_found", "404", "could not find", "validation_error"))
+
+                    if attempt == 0 and callable(prompt_func) and (is_unauth or is_not_found):
+                        if is_unauth:
+                            _print(f"Failed to send {item.filename} to Notion: Invalid or unauthorized Notion API token.")
+                            new_token = prompt_func(
+                                "Enter corrected Notion API token (or press Enter to finish without passing to Notion): "
+                            ).strip()
+                            if new_token:
+                                try:
+                                    from notion_client import Client
+                                    current_notion_client = Client(auth=new_token)
+                                    schema_cache.clear()
+                                    continue
+                                except Exception as init_err:
+                                    errors.append(f"Failed to initialize Notion client with new token: {init_err}")
+                            else:
+                                item.is_synced = False
+                                errors.append(f"Skipped Notion sync for {item.filename} (finished without passing to Notion).")
+                                skip_all_remaining_notion = True
+                                break
+                        elif is_not_found:
+                            _print(f"Failed to send {item.filename} to Notion target {target_id}: Target not found or no access.")
+                            new_target = prompt_func(
+                                f"Check if the key is correct or enter the correct database/page ID for {item.classification} (press Enter to finish without passing to Notion): "
+                            ).strip()
+                            if new_target:
+                                if item.classification == "WORK_NOTES":
+                                    current_database_id = new_target
+                                    if current_destinations is not None:
+                                        current_destinations.work_notes_database_id = new_target
+                                elif current_destinations is not None:
+                                    if item.classification == "DUE_DILIGENCE":
+                                        current_destinations.due_diligence_page_id = new_target
+                                    elif item.classification == "BRAINSTORM":
+                                        current_destinations.brainstorm_page_id = new_target
+                                else:
+                                    current_database_id = new_target
+                                schema_cache.clear()
+                                continue
+                            else:
+                                item.is_synced = False
+                                errors.append(f"Skipped Notion sync for {item.filename} (finished without passing to Notion).")
+                                skip_all_remaining_notion = True
+                                break
+
+                    item.is_synced = False
+                    errors.append(f"Failed to sync {item.filename} to Notion target {target_id}: {sync_err}")
+                    break
         else:
             item.is_synced = False
 
