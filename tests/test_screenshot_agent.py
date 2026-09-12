@@ -996,11 +996,14 @@ def test_build_page_append_blocks_with_image(tmp_path: Path):
     item = ScreenshotItem(path=tmp_path / "shot.png", title="Test Title", cluster_tag="Work")
     blocks = build_page_append_blocks(item, file_upload_id="fu_xyz")
 
-    assert len(blocks) == 3
+    assert len(blocks) == 2
     assert blocks[0]["type"] == "callout"
-    assert blocks[1]["type"] == "paragraph"
-    assert blocks[2]["type"] == "image"
-    assert blocks[2]["image"]["file_upload"]["id"] == "fu_xyz"
+    callout_text = blocks[0]["callout"]["rich_text"][0]["text"]["content"]
+    assert "Rationale:" in callout_text
+    assert "Category:" not in callout_text
+    assert "Source:" not in callout_text
+    assert blocks[1]["type"] == "image"
+    assert blocks[1]["image"]["file_upload"]["id"] == "fu_xyz"
 
 
 def test_match_existing_page_exact_and_token_overlap(tmp_path: Path):

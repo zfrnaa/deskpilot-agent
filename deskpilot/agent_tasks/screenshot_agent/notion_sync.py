@@ -221,28 +221,12 @@ def build_page_append_blocks(
                         "text": {
                             "content": (
                                 f"{title_text}\n"
-                                f"Rationale: {item.rationale or 'N/A'}\n"
-                                f"Category: {item.cluster_tag}\n"
-                                f"Source: {item.filename}"
+                                f"Rationale: {item.rationale or 'N/A'}"
                             )
                         },
                     }
                 ],
                 "icon": {"type": "emoji", "emoji": emoji},
-            },
-        },
-        {
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": f"Classification: {item.classification} | Tag: {item.cluster_tag}"
-                        },
-                    }
-                ],
             },
         },
     ]
