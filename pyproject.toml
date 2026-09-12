@@ -11,6 +11,7 @@ dependencies = [
     "google-auth-oauthlib>=1.4.1",
     "langchain-core>=1.6.2",
     "langchain-google-genai>=4.4.0",
+    "langchain-ollama>=1.1.0",
     "langgraph>=1.2.11",
     "notion-client>=3.1.0",
     "pillow>=12.3.0",
