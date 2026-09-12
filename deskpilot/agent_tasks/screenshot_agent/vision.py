@@ -228,12 +228,13 @@ def classify_screenshot(
                 response = llm.invoke([message])
             except Exception as invoke_err:
                 err_msg = str(invoke_err).lower()
-                is_quota_or_gemini = any(
+                is_gemini_llm = "google" in llm.__class__.__module__.lower() or "gemini" in llm.__class__.__name__.lower()
+                is_quota = any(
                     kw in err_msg
                     for kw in ("quota", "resource_exhausted", "429", "exhausted", "credit", "rate limit")
-                ) or ("google" in llm.__class__.__module__.lower() or "gemini" in llm.__class__.__name__.lower())
+                )
 
-                if is_quota_or_gemini:
+                if is_gemini_llm and is_quota:
                     # Attempt automatic fallback to Ollama MiniCPM-V
                     ollama_llm = get_default_vision_llm(gemini_api_key="", ollama_model="minicpm-v")
                     if ollama_llm is not None:
