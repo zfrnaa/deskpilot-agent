@@ -61,6 +61,7 @@ def test_default_config_models():
 
     ollama_cfg = OllamaConfig()
     assert ollama_cfg.model == "minicpm-v"
+    assert ollama_cfg.reasoning_model == "qwen2.5:3b"
     assert ollama_cfg.url == "http://localhost:11434"
 
 
@@ -84,6 +85,7 @@ winget:
   timeout_secs: 30
 ollama:
   model: "llava"
+  reasoning_model: "llama3.2:3b"
   url: "http://127.0.0.1:11434"
 notion:
   screenshot_destinations:
@@ -101,6 +103,7 @@ notion:
     assert settings.screenshots.delete_synced_local is False
     assert settings.winget.timeout_secs == 30
     assert settings.ollama.model == "llava"
+    assert settings.ollama.reasoning_model == "llama3.2:3b"
     assert settings.ollama.url == "http://127.0.0.1:11434"
     assert settings.notion.screenshot_destinations.work_notes_database_id == "db_work_notes_yaml"
     assert settings.notion.screenshot_destinations.due_diligence_page_id == "page_dd_yaml"

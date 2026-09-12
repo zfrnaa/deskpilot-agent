@@ -92,7 +92,7 @@ class ScreenshotsConfig(BaseModel):
     enabled: bool = True
     directory: Path = Path("~/Pictures/Screenshots")
     delete_synced_local: bool = True
-    max_images: int = 10
+    max_images: int = 50
 
     def get_resolved_directory(self) -> Path:
         """Return resolved path to the screenshots folder."""
@@ -125,6 +125,7 @@ class OllamaConfig(BaseModel):
     """Configuration for local Ollama LLM / Vision model."""
 
     model: str = "minicpm-v"
+    reasoning_model: str = "qwen2.5:3b"
     url: str = "http://localhost:11434"
 
 

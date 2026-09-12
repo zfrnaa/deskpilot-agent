@@ -69,6 +69,33 @@ def get_ollama_vision_llm(
             return None
 
 
+def get_ollama_reasoning_llm(
+    ollama_model: str = "qwen2.5:3b",
+    ollama_url: str = "http://localhost:11434",
+    temperature: float = 0.1,
+) -> Any:
+    """Instantiate and return Ollama Chat model for reasoning / tool calling."""
+    try:
+        from langchain_ollama import ChatOllama
+
+        return ChatOllama(
+            model=ollama_model or "qwen2.5:3b",
+            base_url=ollama_url or "http://localhost:11434",
+            temperature=temperature,
+        )
+    except ImportError:
+        try:
+            from langchain_community.chat_models import ChatOllama
+
+            return ChatOllama(
+                model=ollama_model or "qwen2.5:3b",
+                base_url=ollama_url or "http://localhost:11434",
+                temperature=temperature,
+            )
+        except Exception:
+            return None
+
+
 def check_gemini_quota(
     gemini_api_key: str | None = None,
     model: str = "gemini-3.8-flash",
