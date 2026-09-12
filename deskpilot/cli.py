@@ -382,7 +382,12 @@ async def execute_menu_action(
                     ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
                 )
 
-            triage_res = await run_screenshot_triage(cfg, llm=selected_llm)
+            triage_res = await run_screenshot_triage(
+                cfg,
+                llm=selected_llm,
+                prompt_func=prompt_func,
+                console_print=c.print,
+            )
             if state is not None:
                 state.set_finding("screenshot_triage", triage_res)
 
@@ -390,6 +395,8 @@ async def execute_menu_action(
             deleted = triage_res.get("deleted_count", 0)
             errors = triage_res.get("errors", [])
             c.print(f"[bold green]Screenshot Triage complete:[/bold green] Synced: {synced}, Deleted: {deleted}")
+            if any("without passing to Notion" in str(err) for err in errors):
+                c.print("[yellow]Finished the task without passing to Notion.[/yellow]")
             if errors:
                 c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow]")
                 for err in errors:

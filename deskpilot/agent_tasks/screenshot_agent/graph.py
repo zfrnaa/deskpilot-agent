@@ -168,11 +168,15 @@ def notion_sync(
     parent_page_id: str = "",
     database_id: str = "",
     destinations: ScreenshotDestinationsConfig | None = None,
+    prompt_func: Any = None,
+    console_print: Any = None,
 ) -> dict[str, Any]:
     """Synchronize approved screenshots to Notion destinations."""
     items = state.get("items", [])
     approved = state.get("approved_cluster_keys", [])
     dests = state.get("destinations", destinations)
+    p_func = state.get("prompt_func", prompt_func)
+    c_print = state.get("console_print", console_print)
     synced_count, sync_errors = sync_approved_items(
         items=items,
         approved_cluster_keys=approved,
@@ -180,6 +184,8 @@ def notion_sync(
         parent_page_id=parent_page_id,
         database_id=database_id,
         destinations=dests,
+        prompt_func=p_func,
+        console_print=c_print,
     )
     current_errors = list(state.get("errors", [])) + sync_errors
     return {
@@ -275,6 +281,8 @@ async def run_screenshot_triage(
     llm: Any = None,
     notion_client: Any = None,
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
+    prompt_func: Any = None,
+    console_print: Any = None,
 ) -> ScreenshotAgentState:
     """High-level entrypoint to execute screenshot triage agent using configured settings."""
     if llm is None:
@@ -307,6 +315,8 @@ async def run_screenshot_triage(
         auto_approve=auto_approve,
         delete_synced_local=settings.screenshots.delete_synced_local,
         destinations=settings.notion.screenshot_destinations,
+        prompt_func=prompt_func,
+        console_print=console_print,
     )
 
     return await graph.ainvoke(initial_state, config={"run_name": "ScreenshotTriageAgent"})

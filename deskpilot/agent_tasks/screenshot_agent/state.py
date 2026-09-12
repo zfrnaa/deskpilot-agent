@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Any, Callable, Literal, TypedDict
 
 from pydantic import BaseModel, model_validator
 
@@ -55,6 +55,8 @@ class ScreenshotAgentState(TypedDict, total=False):
     destinations: ScreenshotDestinationsConfig
     parent_page_id: str
     database_id: str
+    prompt_func: Any
+    console_print: Any
 
 
 def create_initial_state(
@@ -63,6 +65,8 @@ def create_initial_state(
     auto_approve: bool = False,
     delete_synced_local: bool = True,
     destinations: ScreenshotDestinationsConfig | None = None,
+    prompt_func: Any = None,
+    console_print: Any = None,
 ) -> ScreenshotAgentState:
     """Create a fully initialized ScreenshotAgentState dictionary."""
     state: ScreenshotAgentState = {
@@ -79,4 +83,8 @@ def create_initial_state(
     }
     if destinations is not None:
         state["destinations"] = destinations
+    if prompt_func is not None:
+        state["prompt_func"] = prompt_func
+    if console_print is not None:
+        state["console_print"] = console_print
     return state

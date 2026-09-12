@@ -322,16 +322,22 @@ async def test_execute_menu_action_option_1_prompts_when_credits_available():
         settings = Settings()
         state = BootState()
         # User says 'n' to using Gemini
+        prompt = lambda _: "n"
         should_continue = await execute_menu_action(
             "1",
             state=state,
             console=console,
             settings=settings,
-            prompt_func=lambda _: "n",
+            prompt_func=prompt,
         )
         assert should_continue is True
         mock_get_ollama.assert_called_once()
-        mock_agent.assert_awaited_once_with(settings, llm=mock_ollama_instance)
+        mock_agent.assert_awaited_once_with(
+            settings,
+            llm=mock_ollama_instance,
+            prompt_func=prompt,
+            console_print=console.print,
+        )
         output = console.export_text()
         assert "Using local Ollama (minicpm-v) as requested" in output
 
@@ -352,18 +358,53 @@ async def test_execute_menu_action_option_1_proceeds_with_gemini_on_yes():
 
         settings = Settings()
         state = BootState()
+        prompt = lambda _: "y"
         should_continue = await execute_menu_action(
             "1",
             state=state,
             console=console,
             settings=settings,
-            prompt_func=lambda _: "y",
+            prompt_func=prompt,
         )
         assert should_continue is True
         mock_get_gemini.assert_called_once()
-        mock_agent.assert_awaited_once_with(settings, llm=mock_gemini_instance)
+        mock_agent.assert_awaited_once_with(
+            settings,
+            llm=mock_gemini_instance,
+            prompt_func=prompt,
+            console_print=console.print,
+        )
         output = console.export_text()
         assert "Proceeding with Gemini Vision model" in output
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_1_skipped_notion_sync_prints_notice():
+    """Verify that when Notion sync is skipped via empty input, the CLI displays the finished message."""
+    console = Console(record=True, width=100)
+    mock_triage_result = {
+        "items": [],
+        "synced_count": 0,
+        "deleted_count": 0,
+        "errors": ["Skipped Notion sync for shot.png (finished without passing to Notion)."],
+    }
+    with (
+        patch("deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage", new_callable=AsyncMock) as mock_agent,
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.check_gemini_quota", return_value=False),
+    ):
+        mock_agent.return_value = mock_triage_result
+        settings = Settings()
+        state = BootState()
+        should_continue = await execute_menu_action(
+            "1",
+            state=state,
+            console=console,
+            settings=settings,
+        )
+        assert should_continue is True
+        output = console.export_text()
+        assert "Finished the task without passing to Notion." in output
+
 
 
 @pytest.mark.asyncio
