@@ -58,6 +58,8 @@ class ScreenshotAgentState(TypedDict, total=False):
     tag_options: list[str]
     prompt_func: Any
     console_print: Any
+    reasoning_llm: Any
+    fallback_reasoning_llm: Any
 
 
 def create_initial_state(
@@ -69,6 +71,8 @@ def create_initial_state(
     tag_options: list[str] | None = None,
     prompt_func: Any = None,
     console_print: Any = None,
+    reasoning_llm: Any = None,
+    fallback_reasoning_llm: Any = None,
 ) -> ScreenshotAgentState:
     """Create a fully initialized ScreenshotAgentState dictionary."""
     state: ScreenshotAgentState = {
@@ -91,4 +95,9 @@ def create_initial_state(
         state["prompt_func"] = prompt_func
     if console_print is not None:
         state["console_print"] = console_print
+    if reasoning_llm is not None:
+        state["reasoning_llm"] = reasoning_llm
+    if fallback_reasoning_llm is not None:
+        state["fallback_reasoning_llm"] = fallback_reasoning_llm
     return state
+

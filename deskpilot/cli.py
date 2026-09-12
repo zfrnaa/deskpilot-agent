@@ -336,11 +336,14 @@ async def execute_menu_action(
             from deskpilot.agent_tasks.screenshot_agent.vision import (
                 check_gemini_quota,
                 get_default_vision_llm,
+                get_ollama_reasoning_llm,
                 get_ollama_vision_llm,
             )
 
             cfg = settings or load_settings()
-            selected_llm = None
+            selected_vision_llm = None
+            selected_reasoning_llm = None
+            fallback_reasoning_llm = None
 
             # Determine vision model routing (Gemini vs local Ollama minicpm-v)
             if cfg.gemini_api_key:
@@ -351,10 +354,15 @@ async def execute_menu_action(
                         "[yellow]Gemini credits/quota exhausted or unavailable. "
                         "Automatically routing to local Ollama (minicpm-v)...[/yellow]"
                     )
-                    selected_llm = get_ollama_vision_llm(
+                    selected_vision_llm = get_ollama_vision_llm(
                         ollama_model=getattr(cfg.ollama, "model", "minicpm-v"),
                         ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
                     )
+                    selected_reasoning_llm = get_ollama_reasoning_llm(
+                        ollama_model=getattr(cfg.ollama, "reasoning_model", "qwen2.5:3b"),
+                        ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                    )
+                    fallback_reasoning_llm = None
                 else:
                     ans = (
                         prompt_func(
@@ -365,26 +373,46 @@ async def execute_menu_action(
                     )
                     if ans in {"n", "no"}:
                         c.print("[cyan]Using local Ollama (minicpm-v) as requested.[/cyan]")
-                        selected_llm = get_ollama_vision_llm(
+                        selected_vision_llm = get_ollama_vision_llm(
                             ollama_model=getattr(cfg.ollama, "model", "minicpm-v"),
                             ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
                         )
+                        selected_reasoning_llm = get_ollama_reasoning_llm(
+                            ollama_model=getattr(cfg.ollama, "reasoning_model", "qwen2.5:3b"),
+                            ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                        )
+                        fallback_reasoning_llm = None
                     else:
                         c.print("[cyan]Proceeding with Gemini Vision model.[/cyan]")
-                        selected_llm = get_default_vision_llm(
+                        selected_vision_llm = get_default_vision_llm(
                             gemini_api_key=cfg.gemini_api_key,
                             model=cfg.gemini_model,
                         )
+                        selected_reasoning_llm = get_default_vision_llm(
+                            gemini_api_key=cfg.gemini_api_key,
+                            model=cfg.gemini_model,
+                        )
+                        fallback_reasoning_llm = get_ollama_reasoning_llm(
+                            ollama_model=getattr(cfg.ollama, "reasoning_model", "qwen2.5:3b"),
+                            ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                        )
             else:
                 c.print("[yellow]Gemini API key not configured. Using local Ollama (minicpm-v)...[/yellow]")
-                selected_llm = get_ollama_vision_llm(
+                selected_vision_llm = get_ollama_vision_llm(
                     ollama_model=getattr(cfg.ollama, "model", "minicpm-v"),
                     ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
                 )
+                selected_reasoning_llm = get_ollama_reasoning_llm(
+                    ollama_model=getattr(cfg.ollama, "reasoning_model", "qwen2.5:3b"),
+                    ollama_url=getattr(cfg.ollama, "url", "http://localhost:11434"),
+                )
+                fallback_reasoning_llm = None
 
             triage_res = await run_screenshot_triage(
                 cfg,
-                llm=selected_llm,
+                llm=selected_vision_llm,
+                reasoning_llm=selected_reasoning_llm,
+                fallback_reasoning_llm=fallback_reasoning_llm,
                 prompt_func=prompt_func,
                 console_print=c.print,
             )

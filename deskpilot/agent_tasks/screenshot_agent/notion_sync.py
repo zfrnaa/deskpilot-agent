@@ -537,6 +537,8 @@ def sync_screenshot_to_notion(
     llm: Any = None,
     page_cache: dict[str, list[dict[str, str]]] | None = None,
     consolidate_pages: bool = True,
+    reasoning_llm: Any = None,
+    fallback_reasoning_llm: Any = None,
 ) -> bool:
     """Synchronize a single screenshot item to its designated Notion target.
 
@@ -585,6 +587,33 @@ def sync_screenshot_to_notion(
 
     try:
         if target_type == "database":
+            if reasoning_llm is not None:
+                from deskpilot.agent_tasks.screenshot_agent.react_agent import run_react_consolidation_agent
+
+                schema = schema_cache.get(target_id) if schema_cache is not None else None
+                if schema is None:
+                    schema = introspect_database_schema(notion_client, target_id)
+                    if schema_cache is not None:
+                        schema_cache[target_id] = schema
+
+                react_res = run_react_consolidation_agent(
+                    item=item,
+                    notion_client=notion_client,
+                    database_id=target_id,
+                    schema=schema,
+                    llm=reasoning_llm,
+                    fallback_llm=fallback_reasoning_llm,
+                    file_upload_id=file_upload_id or "",
+                )
+                if react_res.get("synced"):
+                    item.is_synced = True
+                    return True
+                else:
+                    item.is_synced = False
+                    if raise_on_error and react_res.get("error"):
+                        raise RuntimeError(react_res.get("error"))
+                    return False
+
             if consolidate_pages:
                 if page_cache is not None and target_id in page_cache:
                     existing_pages = page_cache[target_id]
@@ -691,6 +720,8 @@ def sync_approved_items(
     console_print: Any = None,
     llm: Any = None,
     consolidate_pages: bool = True,
+    reasoning_llm: Any = None,
+    fallback_reasoning_llm: Any = None,
 ) -> tuple[int, list[str]]:
     """Synchronize all approved screenshots to their Notion destinations.
 
@@ -749,6 +780,8 @@ def sync_approved_items(
                         llm=llm,
                         page_cache=page_cache,
                         consolidate_pages=consolidate_pages,
+                        reasoning_llm=reasoning_llm,
+                        fallback_reasoning_llm=fallback_reasoning_llm,
                     )
                     if success:
                         synced_count += 1

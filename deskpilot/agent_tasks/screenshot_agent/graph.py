@@ -176,6 +176,8 @@ def notion_sync(
     prompt_func: Any = None,
     console_print: Any = None,
     llm: Any = None,
+    reasoning_llm: Any = None,
+    fallback_reasoning_llm: Any = None,
 ) -> dict[str, Any]:
     """Synchronize approved screenshots to Notion destinations."""
     items = state.get("items", [])
@@ -184,6 +186,8 @@ def notion_sync(
     p_func = state.get("prompt_func", prompt_func)
     c_print = state.get("console_print", console_print)
     selected_llm = state.get("llm", llm)
+    r_llm = state.get("reasoning_llm", reasoning_llm)
+    fb_llm = state.get("fallback_reasoning_llm", fallback_reasoning_llm)
     synced_count, sync_errors = sync_approved_items(
         items=items,
         approved_cluster_keys=approved,
@@ -194,6 +198,8 @@ def notion_sync(
         prompt_func=p_func,
         console_print=c_print,
         llm=selected_llm,
+        reasoning_llm=r_llm,
+        fallback_reasoning_llm=fb_llm,
     )
     current_errors = list(state.get("errors", [])) + sync_errors
     return {
@@ -231,6 +237,8 @@ def build_screenshot_triage_graph(
     delete_synced_local: bool = True,
     auto_approve: bool = False,
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
+    reasoning_llm: Any = None,
+    fallback_reasoning_llm: Any = None,
 ) -> CompiledStateGraph:
     """Build and compile the LangGraph workflow for screenshot triage."""
     builder = StateGraph(ScreenshotAgentState)
@@ -260,6 +268,8 @@ def build_screenshot_triage_graph(
             database_id=db_id,
             destinations=dests,
             llm=llm,
+            reasoning_llm=reasoning_llm,
+            fallback_reasoning_llm=fallback_reasoning_llm,
         )
 
     def _clean(state: ScreenshotAgentState) -> dict[str, Any]:
@@ -292,6 +302,8 @@ async def run_screenshot_triage(
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
     prompt_func: Any = None,
     console_print: Any = None,
+    reasoning_llm: Any = None,
+    fallback_reasoning_llm: Any = None,
 ) -> ScreenshotAgentState:
     """High-level entrypoint to execute screenshot triage agent using configured settings."""
     if llm is None:
@@ -316,6 +328,8 @@ async def run_screenshot_triage(
         delete_synced_local=settings.screenshots.delete_synced_local,
         auto_approve=auto_approve,
         review_func=review_func,
+        reasoning_llm=reasoning_llm,
+        fallback_reasoning_llm=fallback_reasoning_llm,
     )
 
     tag_options: list[str] | None = None
@@ -337,6 +351,8 @@ async def run_screenshot_triage(
         tag_options=tag_options,
         prompt_func=prompt_func,
         console_print=console_print,
+        reasoning_llm=reasoning_llm,
+        fallback_reasoning_llm=fallback_reasoning_llm,
     )
 
     return await graph.ainvoke(initial_state, config={"run_name": "ScreenshotTriageAgent"})

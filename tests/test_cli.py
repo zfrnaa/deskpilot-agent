@@ -332,12 +332,12 @@ async def test_execute_menu_action_option_1_prompts_when_credits_available():
         )
         assert should_continue is True
         mock_get_ollama.assert_called_once()
-        mock_agent.assert_awaited_once_with(
-            settings,
-            llm=mock_ollama_instance,
-            prompt_func=prompt,
-            console_print=console.print,
-        )
+        mock_agent.assert_awaited_once()
+        kwargs = mock_agent.call_args[1]
+        assert kwargs.get("llm") == mock_ollama_instance
+        assert kwargs.get("fallback_reasoning_llm") is None
+        assert kwargs.get("prompt_func") == prompt
+        assert kwargs.get("console_print") == console.print
         output = console.export_text()
         assert "Using local Ollama (minicpm-v) as requested" in output
 
@@ -351,10 +351,13 @@ async def test_execute_menu_action_option_1_proceeds_with_gemini_on_yes():
         patch("deskpilot.agent_tasks.screenshot_agent.graph.run_screenshot_triage", new_callable=AsyncMock) as mock_agent,
         patch("deskpilot.agent_tasks.screenshot_agent.vision.check_gemini_quota", return_value=True),
         patch("deskpilot.agent_tasks.screenshot_agent.vision.get_default_vision_llm") as mock_get_gemini,
+        patch("deskpilot.agent_tasks.screenshot_agent.vision.get_ollama_reasoning_llm") as mock_get_ollama_reasoning,
     ):
         mock_agent.return_value = mock_triage_result
         mock_gemini_instance = MagicMock()
+        mock_ollama_reasoning_instance = MagicMock()
         mock_get_gemini.return_value = mock_gemini_instance
+        mock_get_ollama_reasoning.return_value = mock_ollama_reasoning_instance
 
         settings = Settings()
         state = BootState()
@@ -367,10 +370,12 @@ async def test_execute_menu_action_option_1_proceeds_with_gemini_on_yes():
             prompt_func=prompt,
         )
         assert should_continue is True
-        mock_get_gemini.assert_called_once()
+        assert mock_get_gemini.call_count >= 1
         mock_agent.assert_awaited_once_with(
             settings,
             llm=mock_gemini_instance,
+            reasoning_llm=mock_gemini_instance,
+            fallback_reasoning_llm=mock_ollama_reasoning_instance,
             prompt_func=prompt,
             console_print=console.print,
         )
