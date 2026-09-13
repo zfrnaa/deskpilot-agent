@@ -12,6 +12,7 @@ from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
     build_database_page_payload,
     build_page_append_section_blocks,
     fetch_existing_database_pages,
+    is_valid_uuid,
 )
 from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotItem
 
@@ -162,11 +163,28 @@ def append_to_page(
             rationale=rationale,
         )
 
-    blocks = build_page_append_section_blocks(dummy_item, file_upload_id=file_upload_id or None)
-    notion_client.blocks.children.append(
-        block_id=page_id,
-        children=blocks,
-    )
+    resolved_upload_id = file_upload_id.strip() if file_upload_id and is_valid_uuid(file_upload_id) else None
+    blocks = build_page_append_section_blocks(dummy_item, file_upload_id=resolved_upload_id)
+    try:
+        notion_client.blocks.children.append(
+            block_id=page_id,
+            children=blocks,
+        )
+    except Exception as append_err:
+        err_text = str(append_err).lower()
+        if resolved_upload_id and any(kw in err_text for kw in ("file_upload", "validationerror", "uuid", "children")):
+            logger.warning(
+                "append_to_page failed with image block (%s). Retrying text-only section append: %s",
+                resolved_upload_id,
+                append_err,
+            )
+            fallback_blocks = build_page_append_section_blocks(dummy_item, file_upload_id=None)
+            notion_client.blocks.children.append(
+                block_id=page_id,
+                children=fallback_blocks,
+            )
+        else:
+            raise append_err
     return True
 
 
@@ -191,8 +209,23 @@ def create_database_page(
         cluster_tag=subject,
         rationale=rationale,
     )
-    payload = build_database_page_payload(item, database_id, schema, file_upload_id=file_upload_id or None)
-    created_page = notion_client.pages.create(**payload)
+    resolved_upload_id = file_upload_id.strip() if file_upload_id and is_valid_uuid(file_upload_id) else None
+    payload = build_database_page_payload(item, database_id, schema, file_upload_id=resolved_upload_id)
+    try:
+        created_page = notion_client.pages.create(**payload)
+    except Exception as create_err:
+        err_text = str(create_err).lower()
+        if resolved_upload_id and any(kw in err_text for kw in ("file_upload", "validationerror", "uuid", "children")):
+            logger.warning(
+                "create_database_page failed with image block (%s). Retrying page creation without image: %s",
+                resolved_upload_id,
+                create_err,
+            )
+            fallback_payload = build_database_page_payload(item, database_id, schema, file_upload_id=None)
+            created_page = notion_client.pages.create(**fallback_payload)
+        else:
+            raise create_err
+
     if isinstance(created_page, dict):
         return created_page.get("id") or ""
     return getattr(created_page, "id", "") or ""
@@ -202,6 +235,7 @@ def create_notion_react_tools(
     notion_client: Any,
     database_id: str,
     schema: dict[str, Any],
+    default_file_upload_id: str = "",
 ) -> list[StructuredTool]:
     """Create bound LangChain StructuredTool instances for the Notion ReAct agent."""
 
@@ -221,11 +255,12 @@ def create_notion_react_tools(
         file_upload_id: str = "",
     ) -> bool:
         """Append section heading, details, and screenshot image to an existing Notion page."""
+        effective_upload_id = file_upload_id if (file_upload_id and is_valid_uuid(file_upload_id)) else default_file_upload_id
         return append_to_page(
             page_id=page_id,
             section_title=section_title,
             rationale=rationale,
-            file_upload_id=file_upload_id,
+            file_upload_id=effective_upload_id,
             notion_client=notion_client,
         )
 
@@ -236,11 +271,12 @@ def create_notion_react_tools(
         file_upload_id: str = "",
     ) -> str:
         """Create a brand new database page for this screenshot."""
+        effective_upload_id = file_upload_id if (file_upload_id and is_valid_uuid(file_upload_id)) else default_file_upload_id
         return create_database_page(
             title=title,
             subject=subject,
             rationale=rationale,
-            file_upload_id=file_upload_id,
+            file_upload_id=effective_upload_id,
             notion_client=notion_client,
             database_id=database_id,
             schema=schema,
@@ -288,6 +324,7 @@ def run_react_consolidation_agent(
         notion_client=notion_client,
         database_id=database_id,
         schema=schema,
+        default_file_upload_id=file_upload_id,
     )
     tools_map = {t.name: t for t in tools}
 
@@ -393,13 +430,29 @@ def run_react_consolidation_agent(
     # Fail open / graceful fallback: direct database page creation so screenshot sync is never dropped
     try:
         logger.info("Failing open to direct database page creation for screenshot: %s", item.title)
+        resolved_upload_id = file_upload_id.strip() if file_upload_id and is_valid_uuid(file_upload_id) else None
         payload = build_database_page_payload(
             item,
             database_id,
             schema,
-            file_upload_id=file_upload_id or None,
+            file_upload_id=resolved_upload_id,
         )
-        created_page = notion_client.pages.create(**payload)
+        try:
+            created_page = notion_client.pages.create(**payload)
+        except Exception as create_err:
+            err_text = str(create_err).lower()
+            if resolved_upload_id and any(kw in err_text for kw in ("file_upload", "validationerror", "uuid", "children")):
+                logger.warning("Direct page creation failed with image block. Retrying text-only page: %s", create_err)
+                fallback_payload = build_database_page_payload(
+                    item,
+                    database_id,
+                    schema,
+                    file_upload_id=None,
+                )
+                created_page = notion_client.pages.create(**fallback_payload)
+            else:
+                raise create_err
+
         page_id = created_page.get("id") if isinstance(created_page, dict) else getattr(created_page, "id", "")
         item.is_synced = True
         return {

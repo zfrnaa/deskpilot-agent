@@ -132,7 +132,7 @@ def test_append_to_page_tool(mock_notion_client):
         "page_id": "page-123",
         "section_title": "Q3 Budget Review",
         "rationale": "Budget allocation chart",
-        "file_upload_id": "upload-999",
+        "file_upload_id": "3dae7e99-5fc4-814b-9c40-00b2a09dd0f4",
     })
 
     assert res is True
@@ -158,7 +158,7 @@ def test_create_database_page_tool(mock_notion_client, sample_schema):
         "title": "New Standup Topic",
         "subject": "Work",
         "rationale": "Standup diagram",
-        "file_upload_id": "upload-abc",
+        "file_upload_id": "3dae7e99-5fc4-814b-9c40-00b2a09dd0f4",
     })
 
     assert new_id == "new-page-789"
@@ -318,3 +318,45 @@ def test_run_react_consolidation_agent_graceful_fallback_on_error(
     assert result["error"] is None
     assert sample_item.is_synced is True
     mock_notion_client.pages.create.assert_called_once()
+
+
+def test_append_to_page_retries_without_image_on_file_upload_error(mock_notion_client):
+    """Test append_to_page retries with text-only blocks when Notion rejects file_upload ID."""
+    mock_notion_client.blocks.children.append.side_effect = [
+        RuntimeError("Could not find file_upload with ID: 3dae7e99-5fc4-814b-9c40-00b2a09dd0f4"),
+        {"results": [{"id": "b1"}]},
+    ]
+    res = append_to_page(
+        page_id="page-123",
+        section_title="Architecture",
+        rationale="Notes",
+        file_upload_id="3dae7e99-5fc4-814b-9c40-00b2a09dd0f4",
+        notion_client=mock_notion_client,
+    )
+    assert res is True
+    assert mock_notion_client.blocks.children.append.call_count == 2
+    # Second call should have no image block
+    fallback_children = mock_notion_client.blocks.children.append.call_args_list[1].kwargs["children"]
+    assert not any(b.get("type") == "image" for b in fallback_children)
+
+
+def test_create_database_page_retries_without_image_on_file_upload_error(mock_notion_client, sample_schema):
+    """Test create_database_page retries page creation without image when Notion rejects file_upload ID."""
+    mock_notion_client.pages.create.side_effect = [
+        RuntimeError("body.children[2].image.file_upload.id should be a valid uuid"),
+        {"id": "new-page-fallback"},
+    ]
+    page_id = create_database_page(
+        title="Architecture",
+        subject="Work",
+        rationale="Notes",
+        file_upload_id="3dae7e99-5fc4-814b-9c40-00b2a09dd0f4",
+        notion_client=mock_notion_client,
+        database_id="test-db-id",
+        schema=sample_schema,
+    )
+    assert page_id == "new-page-fallback"
+    assert mock_notion_client.pages.create.call_count == 2
+    fallback_payload = mock_notion_client.pages.create.call_args_list[1].kwargs
+    fallback_children = fallback_payload["children"]
+    assert not any(b.get("type") == "image" for b in fallback_children)

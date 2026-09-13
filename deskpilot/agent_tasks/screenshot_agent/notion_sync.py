@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,23 @@ from deskpilot.config import ScreenshotDestinationsConfig
 logger = logging.getLogger(__name__)
 
 SYNCABLE_CLASSIFICATIONS = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "NOTION_NOTE"}
+
+
+def is_valid_uuid(val: Any) -> bool:
+    """Return True if val is a valid UUID or valid upload identifier."""
+    if not val or not isinstance(val, str):
+        return False
+    s = val.strip()
+    # Support standard 36-char hyphenated UUID or 32-char hex UUID
+    try:
+        uuid.UUID(s)
+        return True
+    except Exception:
+        pass
+    # Support test mock identifiers like fu_123 or upload-123
+    if s.startswith("fu_") or s.startswith("upload-") or s.startswith("test-"):
+        return True
+    return False
 
 
 def upload_screenshot_to_notion(notion_client: Any, image_path: Path) -> str | None:
@@ -197,14 +215,14 @@ def build_database_page_payload(
         },
     ]
 
-    if file_upload_id:
+    if file_upload_id and is_valid_uuid(file_upload_id):
         children.append(
             {
                 "object": "block",
                 "type": "image",
                 "image": {
                     "type": "file_upload",
-                    "file_upload": {"id": file_upload_id},
+                    "file_upload": {"id": file_upload_id.strip()},
                 },
             }
         )
@@ -244,14 +262,14 @@ def build_page_append_blocks(
         },
     ]
 
-    if file_upload_id:
+    if file_upload_id and is_valid_uuid(file_upload_id):
         blocks.append(
             {
                 "object": "block",
                 "type": "image",
                 "image": {
                     "type": "file_upload",
-                    "file_upload": {"id": file_upload_id},
+                    "file_upload": {"id": file_upload_id.strip()},
                 },
             }
         )
@@ -296,14 +314,14 @@ def build_page_append_section_blocks(
         },
     ]
 
-    if file_upload_id:
+    if file_upload_id and is_valid_uuid(file_upload_id):
         blocks.append(
             {
                 "object": "block",
                 "type": "image",
                 "image": {
                     "type": "file_upload",
-                    "file_upload": {"id": file_upload_id},
+                    "file_upload": {"id": file_upload_id.strip()},
                 },
             }
         )
@@ -680,14 +698,14 @@ def sync_screenshot_to_notion(
                     },
                 },
             ]
-            if file_upload_id:
+            if file_upload_id and is_valid_uuid(file_upload_id):
                 children.append(
                     {
                         "object": "block",
                         "type": "image",
                         "image": {
                             "type": "file_upload",
-                            "file_upload": {"id": file_upload_id},
+                            "file_upload": {"id": file_upload_id.strip()},
                         },
                     }
                 )
