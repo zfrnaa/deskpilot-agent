@@ -23,9 +23,18 @@ from deskpilot.boot_tasks import (
     check_winget_updates,
     clean_temp_directory,
     fetch_today_agenda,
+    run_calendar_oauth_flow,
 )
 from deskpilot.config import Settings, load_settings
 from deskpilot.state import BootState, format_bytes
+from deskpilot.ui import art as ui_art
+from deskpilot.ui import theme as ui_theme
+from deskpilot.ui.progress import (
+    BOOT_TASK_LABELS,
+    animation_enabled,
+    boot_animation,
+    current_sink,
+)
 
 
 def open_notion_or_browser(page_id: str, web_url: str | None = None) -> bool:
@@ -69,10 +78,30 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     """
     state = BootState()
 
+    async def _tracked(label: str, coro: Any) -> Any:
+        """Await one boot task, reporting status to the active boot sink if any.
+
+        With no sink installed (as in the test suite) this is a pure
+        pass-through: exceptions are re-raised unchanged, so
+        gather(return_exceptions=True) keeps producing identical results.
+        """
+        sink = current_sink()
+        if sink is not None:
+            sink.begin(label)
+        try:
+            result = await coro
+        except Exception as exc:
+            if sink is not None:
+                sink.fail(label, str(exc))
+            raise
+        if sink is not None:
+            sink.finish(label)
+        return result
+
     results = await asyncio.gather(
-        clean_temp_directory(config=settings.temp_cleaner),
-        check_winget_updates(config=settings.winget),
-        fetch_today_agenda(config=settings.calendar),
+        _tracked(BOOT_TASK_LABELS[0], clean_temp_directory(config=settings.temp_cleaner)),
+        _tracked(BOOT_TASK_LABELS[1], check_winget_updates(config=settings.winget)),
+        _tracked(BOOT_TASK_LABELS[2], fetch_today_agenda(config=settings.calendar)),
         return_exceptions=True,
     )
 
@@ -102,10 +131,11 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
 def _create_hygiene_panel(state: BootState) -> Panel:
     """Build the Rich panel for System Hygiene (%TEMP% cleaner)."""
     if state.system_hygiene is None or not isinstance(state.system_hygiene, TempCleanResult):
-        return Panel(
+        return ui_theme.panel(
             Text("Cleaner not executed or disabled", style="dim"),
-            title="[bold cyan]System Hygiene (%TEMP%)[/bold cyan]",
-            border_style="cyan",
+            "System Hygiene (%TEMP%)",
+            "cyan",
+            ui_theme.ICON_HYGIENE,
         )
 
     sh: TempCleanResult = state.system_hygiene
@@ -117,20 +147,22 @@ def _create_hygiene_panel(state: BootState) -> Panel:
     if sh.errors:
         lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] {sh.errors[0]}")
 
-    return Panel(
+    return ui_theme.panel(
         "\n".join(lines),
-        title="[bold cyan]System Hygiene (%TEMP%)[/bold cyan]",
-        border_style="cyan",
+        "System Hygiene (%TEMP%)",
+        "cyan",
+        ui_theme.ICON_HYGIENE,
     )
 
 
 def _create_bookmarks_panel(state: BootState) -> Panel:
     """Build the Rich panel for Floorp browser bookmarks audit."""
     if state.floorp_bookmarks is None or not isinstance(state.floorp_bookmarks, BookmarkAuditResult):
-        return Panel(
+        return ui_theme.panel(
             Text("Audit not executed or disabled", style="dim"),
-            title="[bold magenta]Floorp Bookmarks[/bold magenta]",
-            border_style="magenta",
+            "Floorp Bookmarks",
+            "magenta",
+            ui_theme.ICON_BOOKMARKS,
         )
 
     fb: BookmarkAuditResult = state.floorp_bookmarks
@@ -146,20 +178,22 @@ def _create_bookmarks_panel(state: BootState) -> Panel:
         ]
         content = "\n".join(lines)
 
-    return Panel(
+    return ui_theme.panel(
         content,
-        title="[bold magenta]Floorp Bookmarks[/bold magenta]",
-        border_style="magenta",
+        "Floorp Bookmarks",
+        "magenta",
+        ui_theme.ICON_BOOKMARKS,
     )
 
 
 def _create_winget_panel(state: BootState) -> Panel:
     """Build the Rich panel for winget package updates."""
     if state.winget_updates is None or not isinstance(state.winget_updates, WingetUpdateResult):
-        return Panel(
+        return ui_theme.panel(
             Text("Check not executed or disabled", style="dim"),
-            title="[bold blue]Package Updates (winget)[/bold blue]",
-            border_style="blue",
+            "Package Updates (winget)",
+            "blue",
+            ui_theme.ICON_WINGET,
         )
 
     wu: WingetUpdateResult = state.winget_updates
@@ -177,27 +211,29 @@ def _create_winget_panel(state: BootState) -> Panel:
             lines.append(f"[dim]... and {len(wu.updates) - 5} more[/dim]")
         content = "\n".join(lines)
 
-    return Panel(
+    return ui_theme.panel(
         content,
-        title="[bold blue]Package Updates (winget)[/bold blue]",
-        border_style="blue",
+        "Package Updates (winget)",
+        "blue",
+        ui_theme.ICON_WINGET,
     )
 
 
 def _create_calendar_panel(state: BootState) -> Panel:
     """Build the Rich panel for Google Calendar today's agenda."""
     if state.calendar_agenda is None or not isinstance(state.calendar_agenda, CalendarAgendaResult):
-        return Panel(
+        return ui_theme.panel(
             Text("Agenda not fetched or disabled", style="dim"),
-            title="[bold green]Today's Agenda (Google Calendar)[/bold green]",
-            border_style="green",
+            "Today's Agenda (Google Calendar)",
+            "green",
+            ui_theme.ICON_CALENDAR,
         )
 
     ca: CalendarAgendaResult = state.calendar_agenda
-    if not ca.is_configured:
-        content = "[dim]Calendar not configured (token/credentials missing)[/dim]"
-    elif ca.error:
+    if ca.error:
         content = f"[yellow]{ca.error}[/yellow]"
+    elif not ca.is_configured:
+        content = "[dim]Calendar not configured (token/credentials missing)[/dim]"
     elif not ca.events:
         content = f"[green]No events scheduled for today ({ca.date_str or 'today'})[/green]"
     else:
@@ -210,23 +246,24 @@ def _create_calendar_panel(state: BootState) -> Panel:
             lines.append(f"[dim]... and {len(ca.events) - 5} more[/dim]")
         content = "\n".join(lines)
 
-    return Panel(
+    return ui_theme.panel(
         content,
-        title="[bold green]Today's Agenda (Google Calendar)[/bold green]",
-        border_style="green",
+        "Today's Agenda (Google Calendar)",
+        "green",
+        ui_theme.ICON_CALENDAR,
     )
 
 
 def render_dashboard(state: BootState, console: Console | None = None) -> None:
     """Render the morning boot terminal dashboard using Rich components."""
-    c = console or Console()
+    c = ui_theme.get_console(console)
 
-    # Header banner
+    # Header banner (block-art wordmark, or a single line on narrow terminals)
     time_str = state.timestamp.strftime("%A, %B %d, %Y - %I:%M %p")
-    header_panel = Panel(
-        Text("DeskPilot Morning Command Center", justify="center", style="bold white"),
-        subtitle=time_str,
-        border_style="bright_blue",
+    header_panel = ui_art.make_header(
+        time_str,
+        width=c.width,
+        unicode_ok=ui_theme.supports_glyphs(getattr(c, "file", None)),
     )
     c.print(header_panel)
 
@@ -256,10 +293,11 @@ def render_dashboard(state: BootState, console: Console | None = None) -> None:
     if state.has_errors():
         err_lines = "\n".join(f"• {err}" for err in state.errors)
         c.print(
-            Panel(
+            ui_theme.panel(
                 err_lines,
-                title="[bold red]Boot Sequence Warnings & Errors[/bold red]",
-                border_style="red",
+                "Boot Sequence Warnings & Errors",
+                "red",
+                ui_theme.ICON_ERROR,
             )
         )
 
@@ -280,7 +318,7 @@ def prompt_action_menu(
     prompt_func: Callable[[str], str] = input,
 ) -> str:
     """Display the action menu and prompt user for their selection."""
-    c = console or Console()
+    c = ui_theme.get_console(console)
 
     menu_table = Table(show_header=False, box=None, padding=(0, 1))
     menu_table.add_column("Key", style="bold cyan", width=4)
@@ -293,8 +331,16 @@ def prompt_action_menu(
     menu_table.add_row("[5]", "Notion Read-Later Digest (Preview pick & mark read)")
     menu_table.add_row("[0]", "Dismiss & Exit")
 
-    c.print(Panel(menu_table, title="[bold green]Action Menu[/bold green]", border_style="green"))
-    return normalize_menu_choice(prompt_func("Select an option [0-5]: "))
+    c.print(
+        ui_theme.panel(
+            menu_table,
+            "Action Menu",
+            "green",
+            ui_theme.ICON_MENU,
+        )
+    )
+    prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
+    return normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-5]: "))
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -323,7 +369,7 @@ async def execute_menu_action(
 
     Returns True if the menu loop should continue, False if it should exit.
     """
-    c = console or Console()
+    c = ui_theme.get_console(console)
     normalized_choice = normalize_menu_choice(choice)
 
     if normalized_choice == "0":
@@ -576,7 +622,7 @@ async def main_async(
     startup: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
-    c = console or Console()
+    c = ui_theme.get_console(console)
     if settings is None:
         try:
             settings = load_settings()
@@ -587,8 +633,10 @@ async def main_async(
     # Initialize LangSmith / LangChain tracing if configured
     settings.setup_tracing()
 
-    # Run Phase 1 boot sequence concurrently
-    state = await run_phase1_boot_sequence(settings)
+    # Run Phase 1 boot sequence concurrently, animated on a real terminal only.
+    animate = animation_enabled(c, startup)
+    with boot_animation(c, enabled=animate, labels=BOOT_TASK_LABELS):
+        state = await run_phase1_boot_sequence(settings)
 
     # Render terminal dashboard
     render_dashboard(state, console=c)
@@ -596,6 +644,29 @@ async def main_async(
     if startup:
         c.print("[dim]Startup mode active: boot sequence completed successfully.[/dim]")
         return 0
+
+    # If calendar token is unconfigured or failed authorization/refresh, prompt user to re-authorize
+    cal_res = state.calendar_agenda
+    if (
+        isinstance(cal_res, CalendarAgendaResult)
+        and (not cal_res.is_configured or cal_res.error)
+        and settings.calendar.enabled
+        and settings.calendar.get_resolved_credentials_path().exists()
+    ):
+        prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
+        reauth_ans = prompt_func(
+            f"{prompt_glyph} Google Calendar token is expired or not authorized. Would you like to re-authorize now in your browser? [Y/n]: "
+        ).strip().lower()
+        if reauth_ans in ("", "y", "yes"):
+            c.print("[cyan]Opening browser for Google Calendar authorization...[/cyan]")
+            try:
+                await asyncio.to_thread(run_calendar_oauth_flow, settings.calendar)
+                c.print("[green]Re-authorization successful! Fetching today's agenda...[/green]")
+                new_cal_res = await fetch_today_agenda(config=settings.calendar)
+                state.calendar_agenda = new_cal_res
+                render_dashboard(state, console=c)
+            except Exception as auth_exc:
+                c.print(f"[red]Google Calendar authorization failed: {auth_exc}[/red]")
 
     # Interactive menu loop
     while True:
@@ -616,8 +687,28 @@ async def main_async(
             return 0
 
 
+def _configure_stdio() -> None:
+    """Force UTF-8 stdio so dashboard glyphs cannot crash redirected output.
+
+    Windows falls back to the ANSI code page (cp1252) whenever stdout is not a
+    console - piped output, a log file, or the logon task. The dashboard uses
+    box-drawing, block art and emoji that cp1252 cannot encode, which would
+    otherwise raise UnicodeEncodeError mid-boot. ``errors="replace"`` degrades
+    an unencodable glyph instead of aborting the run.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main(args: list[str] | None = None) -> None:
     """DeskPilot CLI entry point."""
+    _configure_stdio()
     parsed = parse_args(args if args is not None else sys.argv[1:])
     try:
         sys.exit(asyncio.run(main_async(startup=parsed.startup)))

@@ -14,25 +14,79 @@ DeskPilot utilizes a **hybrid execution model**:
 
 ```mermaid
 flowchart TD
-    Logon[Windows Logon / CLI Startup] --> CLI[DeskPilot Boot Orchestrator]
-    
-    subgraph Phase1["Phase 1: Sub-Second Fast Boot Sequence (asyncio)"]
-        CLI --> TH[System %TEMP% Cleaner]
-        CLI --> WU[Winget Package Updates Check]
-        CLI --> GC[Google Calendar Today's Agenda]
+    %% Entry & Triggers
+    Logon["🪟 Windows Logon / Shell Startup<br/><code>register_startup.ps1</code>"] --> CLI["🚀 DeskPilot Boot Orchestrator<br/><code>deskpilot/cli.py</code>"]
+    Manual["💻 User Terminal Invocation<br/><code>uv run deskpilot</code>"] --> CLI
+
+    %% Phase 1: Sub-Second Boot Sequence
+    subgraph Phase1 ["⚡ Phase 1: Sub-Second Boot Sequence (asyncio.gather)"]
+        direction TB
+        CLI --> P1Fork{{"asyncio.gather<br/>Concurrent Execution"}}
+        P1Fork -->|Task 1| TH["🧹 %TEMP% Cleaner<br/>Purge temp files older than 24h"]
+        P1Fork -->|Task 2| WU["📦 Winget Updates Check<br/>CLI query with exclusion filter"]
+        P1Fork -->|Task 3| GC["📅 Google Calendar Agenda<br/>OAuth2 + today's events & Meet"]
+        
+        TH --> AggState["📊 BootState Aggregate"]
+        WU --> AggState
+        GC --> AggState
     end
 
-    Phase1 --> Dashboard[3-Panel Rich Terminal Dashboard]
+    %% Terminal Dashboard
+    AggState --> Dash["🖥️ 3-Panel Rich Terminal Dashboard<br/>Hygiene | Winget Updates | Calendar Agenda"]
 
-    subgraph Phase2["Phase 2: Interactive Action Menu & Intelligent Agents"]
-        Dashboard --> Menu{User Action}
-        Menu -->|[1]| STA[Screenshot Triage Agent\nLangGraph + Gemini Vision + Notion Multi-Routing]
-        Menu -->|[2]| DHA[Downloads Hygiene Agent\nLangGraph + Auto-Archive + Cleaner]
-        Menu -->|[3]| FBA[Floorp Bookmarks Auditor (On-Demand)\nplaces.sqlite Read-Only Duplicate & Noise Inspector]
-        Menu -->|[4]| WGU[Interactive Winget Package Upgrade\nWith Custom Exclusions]
-        Menu -->|[5]| RLA[Notion Read-Later Digest\nCurated Reading Pick & Status Update]
-        Menu -->|[0]| Exit[Dismiss & Exit]
+    %% Phase 2: Interactive Action Menu
+    Dash --> Menu{{"🧭 Interactive Action Menu<br/>Select Option [0-5]"}}
+
+    %% Option 1: Screenshot Triage Pipeline
+    subgraph Agent1 ["🖼️ Option 1: Screenshot Triage Agent (LangGraph + Gemini Vision)"]
+        direction TB
+        S_Scan["🔍 scan_screenshots<br/>Locate PNG/JPG images"] --> S_Vision["🤖 vision_triage<br/>Gemini Multimodal Vision Analysis"]
+        S_Vision --> S_Cluster["🗂️ cluster_items<br/>Group into WorkNote, Due Diligence, etc."]
+        S_Cluster --> S_Review{"👤 human_review_node<br/>Interactive cluster approval"}
+        S_Review -->|Approved| S_Sync["📝 notion_sync / ReAct Agent<br/>Introspect schema & create/append pages"]
+        S_Review -->|Rejected| S_Keep["🔒 Retain in local storage"]
+        S_Sync --> S_Clean["🗑️ cleanup_synced<br/>Safe delete only confirmed synced files"]
     end
+
+    %% Option 2: Downloads Hygiene Pipeline
+    subgraph Agent2 ["📥 Option 2: Downloads Hygiene Agent (LangGraph)"]
+        direction TB
+        D_Scan["📂 scan_downloads<br/>Catalog downloads directory"] --> D_Cat["🏷️ categorize_and_analyze<br/>Classify installers, archives, media"]
+        D_Cat --> D_Plan["📋 propose_plan<br/>Assemble actions (delete/archive/keep)"]
+        D_Plan --> D_Review{"👤 human_review_node<br/>Rich table review & confirmation"}
+        D_Review -->|Approved| D_Exec["⚡ execute_actions<br/>Safely purge stale installers & archive"]
+        D_Review -->|Dismissed| D_Noop["⏸️ No disk modifications"]
+    end
+
+    %% Option 3: Floorp Bookmarks Auditor
+    subgraph Task3 ["🔖 Option 3: Floorp Bookmarks Auditor (On-Demand)"]
+        direction TB
+        F_Open["📖 Open places.sqlite<br/><code>immutable=1&mode=ro</code> (no lock)"] --> F_Audit["🔎 Scan Bookmarks<br/>Detect duplicates & noisy UTM tracking params"]
+        F_Audit --> F_Panel["🗂️ Expand Dashboard to 2x2 Grid<br/>Render Rich bookmarks summary panel"]
+    end
+
+    %% Option 4: Winget Upgrade
+    subgraph Task4 ["⬆️ Option 4: Winget Package Upgrade"]
+        direction TB
+        W_Filter["🛡️ Apply ignore_packages Filter<br/>Exclude pinned / blacklisted tools"] --> W_Run["💻 Interactive winget upgrade<br/>Spawn winget CLI in terminal"]
+    end
+
+    %% Option 5: Read-Later Digest Pipeline
+    subgraph Agent5 ["📰 Option 5: Notion Read-Later Digest (LangGraph)"]
+        direction TB
+        R_Fetch["📚 fetch_unread_items<br/>Query 'To Be Read' Notion database"] --> R_Rank["🎯 select_daily_recommendation<br/>Score priority tags & oldest unread"]
+        R_Rank --> R_Prompt{"👤 interactive_or_action_node<br/>Render digest pick & prompt mark read"}
+        R_Prompt -->|Mark Read| R_Update["✅ update_notion_status<br/>Update Status property to 'read'"]
+        R_Prompt -->|Skip| R_Done["🏁 Keep status unchanged"]
+    end
+
+    %% Routing
+    Menu -->|"[1]"| S_Scan
+    Menu -->|"[2]"| D_Scan
+    Menu -->|"[3]"| F_Open
+    Menu -->|"[4]"| W_Filter
+    Menu -->|"[5]"| R_Fetch
+    Menu -->|"[0]"| Exit["👋 Dismiss & Exit"]
 ```
 
 ---

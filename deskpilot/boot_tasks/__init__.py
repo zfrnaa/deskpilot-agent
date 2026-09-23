@@ -5,6 +5,7 @@ from deskpilot.boot_tasks.calendar_briefing import (
     CalendarAgendaResult,
     CalendarEventItem,
     fetch_today_agenda,
+    run_calendar_oauth_flow,
 )
 from deskpilot.boot_tasks.package_checker import (
     WingetUpdateItem,
@@ -24,5 +25,6 @@ __all__ = [
     "clean_temp_directory",
     "check_winget_updates",
     "fetch_today_agenda",
+    "run_calendar_oauth_flow",
 ]
 

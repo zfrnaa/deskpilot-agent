@@ -676,6 +676,62 @@ async def test_main_async_startup_flag_runs_boot_and_exits_cleanly():
         assert "Startup mode active" in output or "completed" in output.lower()
 
 
+@pytest.mark.asyncio
+async def test_main_async_prompts_and_reauthorizes_calendar(tmp_path: Path) -> None:
+    """Verify that main_async prompts to re-authorize calendar when token is invalid and credentials exist."""
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text('{"installed": {}}', encoding="utf-8")
+
+    settings = Settings()
+    settings.calendar.credentials_path = creds_file
+    settings.calendar.enabled = True
+
+    initial_cal_state = CalendarAgendaResult(
+        is_configured=False,
+        error="Token has been expired or revoked.",
+    )
+
+    state = BootState()
+    state.calendar_agenda = initial_cal_state
+
+    new_cal_state = CalendarAgendaResult(
+        events=[CalendarEventItem(id="1", summary="Morning Standup", start_time="09:00", end_time="09:30")],
+        total_count=1,
+        is_configured=True,
+    )
+
+    prompts_received = []
+
+    def mock_prompt(prompt_text: str) -> str:
+        prompts_received.append(prompt_text)
+        if "re-authorize" in prompt_text.lower():
+            return "y"
+        return "0"  # Exit menu
+
+    console = Console(record=True, width=100)
+
+    with (
+        patch("deskpilot.cli.run_phase1_boot_sequence", new_callable=AsyncMock) as mock_boot,
+        patch("deskpilot.cli.run_calendar_oauth_flow") as mock_oauth,
+        patch("deskpilot.cli.fetch_today_agenda", new_callable=AsyncMock) as mock_fetch,
+    ):
+        mock_boot.return_value = state
+        mock_fetch.return_value = new_cal_state
+
+        exit_code = await main_async(
+            console=console,
+            settings=settings,
+            prompt_func=mock_prompt,
+            startup=False,
+        )
+
+        assert exit_code == 0
+        assert mock_oauth.called
+        assert mock_fetch.called
+        assert state.calendar_agenda.total_count == 1
+        assert any("re-authorize" in p.lower() for p in prompts_received)
+
+
 def test_main_entrypoint_parses_startup_argument():
     """Verify that main parses --startup argument and passes it to main_async."""
     with (

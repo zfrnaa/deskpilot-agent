@@ -40,6 +40,20 @@ class CalendarAgendaResult(BaseModel):
     error: str | None = None
 
 
+def run_calendar_oauth_flow(config: CalendarConfig) -> Credentials:
+    """Execute interactive Google Calendar OAuth authorization flow and save token.json."""
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    creds_path = config.get_resolved_credentials_path()
+    token_path = config.get_resolved_token_path()
+
+    flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), scopes=CALENDAR_SCOPES)
+    creds = flow.run_local_server(port=0)
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json(), encoding="utf-8")
+    return creds
+
+
 def _fetch_agenda_sync(
     config: CalendarConfig | None = None,
     service: Any = None,
@@ -66,6 +80,12 @@ def _fetch_agenda_sync(
         token_path = config.get_resolved_token_path()
         creds_path = config.get_resolved_credentials_path()
 
+        is_interactive = (
+            allow_interactive
+            if allow_interactive is not None
+            else (sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty())
+        )
+
         creds = None
         if not token_path.exists():
             if not creds_path.exists():
@@ -77,21 +97,9 @@ def _fetch_agenda_sync(
                     error=f"Google Calendar credentials not found at {creds_path} and token not found at {token_path}",
                 )
 
-            is_interactive = (
-                allow_interactive
-                if allow_interactive is not None
-                else (sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty())
-            )
             if is_interactive:
                 try:
-                    from google_auth_oauthlib.flow import InstalledAppFlow
-
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        str(creds_path), scopes=CALENDAR_SCOPES
-                    )
-                    creds = flow.run_local_server(port=0)
-                    token_path.parent.mkdir(parents=True, exist_ok=True)
-                    token_path.write_text(creds.to_json(), encoding="utf-8")
+                    creds = run_calendar_oauth_flow(config)
                 except Exception as e:
                     return CalendarAgendaResult(
                         events=[],
@@ -122,6 +130,7 @@ def _fetch_agenda_sync(
                 )
 
         if creds and not creds.valid:
+            refreshed = False
             if creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
@@ -129,22 +138,33 @@ def _fetch_agenda_sync(
                         token_path.write_text(creds.to_json(), encoding="utf-8")
                     except OSError:
                         pass
+                    refreshed = True
                 except Exception as e:
+                    refresh_err = str(e)
+            else:
+                refresh_err = "Google Calendar token is expired or invalid without refresh token"
+
+            if not refreshed:
+                # If interactive and credentials.json is present, regenerate token via OAuth flow
+                if is_interactive and creds_path.exists():
+                    try:
+                        creds = run_calendar_oauth_flow(config)
+                    except Exception as auth_err:
+                        return CalendarAgendaResult(
+                            events=[],
+                            total_count=0,
+                            date_str=today_str,
+                            is_configured=False,
+                            error=f"Failed to refresh expired token ({refresh_err}) and re-authorization failed: {auth_err}",
+                        )
+                else:
                     return CalendarAgendaResult(
                         events=[],
                         total_count=0,
                         date_str=today_str,
                         is_configured=False,
-                        error=f"Failed to refresh expired Google Calendar token: {e}",
+                        error=f"Failed to refresh expired Google Calendar token: {refresh_err}",
                     )
-            else:
-                return CalendarAgendaResult(
-                    events=[],
-                    total_count=0,
-                    date_str=today_str,
-                    is_configured=False,
-                    error="Google Calendar token is expired or invalid without refresh token",
-                )
 
         try:
             service = build("calendar", "v3", credentials=creds, static_discovery=False)

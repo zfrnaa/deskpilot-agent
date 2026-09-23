@@ -408,6 +408,43 @@ async def test_fetch_today_agenda_api_unexpected_exception() -> None:
     assert "Connection lost" in result.error
 
 
+@pytest.mark.asyncio
+async def test_fetch_today_agenda_expired_token_triggers_interactive_oauth(tmp_path: Path) -> None:
+    """Verify that when token refresh fails in interactive mode, OAuth flow is re-run and succeeds."""
+    token_file = tmp_path / "token.json"
+    token_file.write_text('{"token": "old_token", "refresh_token": "expired_refresh"}', encoding="utf-8")
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text('{"installed": {"client_id": "test_id"}}', encoding="utf-8")
+
+    mock_creds = MagicMock()
+    mock_creds.valid = False
+    mock_creds.expired = True
+    mock_creds.refresh_token = "expired_refresh"
+    mock_creds.refresh.side_effect = RefreshError("Token expired or revoked.")
+
+    mock_new_creds = MagicMock()
+    mock_new_creds.valid = True
+
+    mock_service = MagicMock()
+    mock_service.events.return_value.list.return_value.execute.return_value = {
+        "items": [{"id": "ev99", "summary": "Reauth Event", "start": {"dateTime": "2026-09-09T10:00:00Z"}, "end": {"dateTime": "2026-09-09T11:00:00Z"}}]
+    }
+
+    config = CalendarConfig(credentials_path=creds_file, token_path=token_file)
+
+    with (
+        patch("deskpilot.boot_tasks.calendar_briefing.Credentials.from_authorized_user_file", return_value=mock_creds),
+        patch("deskpilot.boot_tasks.calendar_briefing.run_calendar_oauth_flow", return_value=mock_new_creds) as mock_oauth_flow,
+        patch("deskpilot.boot_tasks.calendar_briefing.build", return_value=mock_service),
+    ):
+        result = await fetch_today_agenda(config=config, target_date=date(2026, 9, 9), allow_interactive=True)
+
+    assert mock_oauth_flow.called
+    assert result.is_configured is True
+    assert result.total_count == 1
+    assert result.events[0].summary == "Reauth Event"
+
+
 def test_no_utf8_bom_in_calendar_files() -> None:
     """Ensure calendar source and test files do not contain UTF-8 BOM."""
     files_to_check = [

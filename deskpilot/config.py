@@ -117,7 +117,7 @@ class WingetConfig(BaseModel):
     enabled: bool = True
     timeout_secs: int = 15
     ignore_packages: list[str] = Field(
-        default_factory=lambda: ["IObit.AdvancedSystemCare", "RevoUninstaller.RevoUninstallerPro"]
+        default_factory=lambda: ["IObit.AdvancedSystemCare", "IObit.DriverBooster", "RevoUninstaller.RevoUninstallerPro"]
     )
 
 

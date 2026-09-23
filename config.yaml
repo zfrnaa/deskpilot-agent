@@ -42,6 +42,7 @@ winget:
   ignore_packages:
     - AdvancedSystemCare
     - RevoUninstallerPro
+    - DriverBooster 
 
 ollama:
   model: minicpm-v
