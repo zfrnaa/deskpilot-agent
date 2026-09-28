@@ -643,6 +643,12 @@ async def main_async(
 
     if startup:
         c.print("[dim]Startup mode active: boot sequence completed successfully.[/dim]")
+        try:
+            from deskpilot.ui.notifications import format_boot_notification, send_windows_toast
+            title, body = format_boot_notification(state)
+            send_windows_toast(title, body)
+        except Exception:
+            pass
         return 0
 
     # If calendar token is unconfigured or failed authorization/refresh, prompt user to re-authorize

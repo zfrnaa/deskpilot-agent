@@ -677,6 +677,20 @@ async def test_main_async_startup_flag_runs_boot_and_exits_cleanly():
 
 
 @pytest.mark.asyncio
+async def test_main_async_startup_sends_toast():
+    settings = Settings()
+    with (
+        patch("deskpilot.cli.load_settings", return_value=settings),
+        patch("deskpilot.cli.run_phase1_boot_sequence", new_callable=AsyncMock) as mock_boot,
+        patch("deskpilot.ui.notifications.send_windows_toast") as mock_toast,
+    ):
+        mock_boot.return_value = BootState()
+        exit_code = await main_async(settings=settings, startup=True)
+        assert exit_code == 0
+        mock_toast.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_main_async_prompts_and_reauthorizes_calendar(tmp_path: Path) -> None:
     """Verify that main_async prompts to re-authorize calendar when token is invalid and credentials exist."""
     creds_file = tmp_path / "credentials.json"
