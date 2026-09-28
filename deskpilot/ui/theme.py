@@ -132,6 +132,8 @@ def detect_color_system(stream=None, environ=None) -> str | None:
     logon output stays free of escape codes.
     """
     env = environ if environ is not None else os.environ
+    if env.get("DESKPILOT_COLOR_SYSTEM"):
+        return env["DESKPILOT_COLOR_SYSTEM"]
     if env.get("COLORTERM") or env.get("TERM"):
         return None
     target = stream if stream is not None else sys.stdout
@@ -148,7 +150,12 @@ def get_console(console: Console | None = None) -> Console:
     """Return the supplied console, or a themed one when none was injected."""
     if console is not None:
         return console
-    return Console(theme=DESKPILOT_THEME, color_system=detect_color_system())
+    force_terminal = True if os.environ.get("DESKPILOT_FORCE_COLOR") == "1" else None
+    return Console(
+        theme=DESKPILOT_THEME,
+        color_system=detect_color_system(),
+        force_terminal=force_terminal,
+    )
 
 
 def panel(content, title: str, border: str, icon: str = "") -> Panel:

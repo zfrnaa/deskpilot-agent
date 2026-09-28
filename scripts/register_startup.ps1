@@ -113,6 +113,17 @@ if ($wtPath -and -not $StartupFlag) {
     $execPath = $wtPath
     $taskArgs = "-w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" $cliArgs"
     Write-Host "Configuring launch via Windows Terminal: $wtPath" -ForegroundColor Cyan
+} elseif ($StartupFlag) {
+    # Launch silently in background without flashing a console window
+    $psCmd = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
+    if ($psCmd) {
+        $execPath = $psCmd
+        $taskArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$WorkingDirectory'; & '$uvPath' $cliArgs`""
+    } else {
+        $execPath = $uvPath
+        $taskArgs = $cliArgs
+    }
+    Write-Host "Configuring silent background launch: $execPath $taskArgs" -ForegroundColor Cyan
 } else {
     $execPath = $uvPath
     $taskArgs = $cliArgs

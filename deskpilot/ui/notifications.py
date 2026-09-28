@@ -55,36 +55,48 @@ def send_windows_toast(
 ) -> bool:
     """Dispatch a native Windows Toast Notification using PowerShell WinRT API."""
     import shutil
+    import xml.sax.saxutils as saxutils
 
     ps_bin = shutil.which("powershell.exe") or shutil.which("powershell") or "powershell"
 
-    # Escape quotes for XML and PowerShell string literals
-    safe_title = title.replace("'", "''").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    safe_msg = message.replace("'", "''").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # XML-escape title and message content
+    safe_title = saxutils.escape(title)
+    safe_msg = saxutils.escape(message)
 
     activation = ""
+    action_xml = ""
     if action_command:
-        safe_action = action_command.replace("'", "''")
+        safe_action = saxutils.escape(action_command)
         activation = f"launch='{safe_action}' activationType='protocol'"
+        action_xml = (
+            "<actions>"
+            f"<action content='Open Dashboard' arguments='{safe_action}' activationType='protocol' />"
+            "</actions>"
+        )
+
+    template_xml = (
+        f"<toast {activation}>"
+        "<visual>"
+        "<binding template='ToastGeneric'>"
+        f"<text>{safe_title}</text>"
+        f"<text>{safe_msg}</text>"
+        "</binding>"
+        "</visual>"
+        f"{action_xml}"
+        "</toast>"
+    )
+
+    # Escape single quotes for PowerShell single-quoted string literal
+    ps_xml = template_xml.replace("'", "''")
 
     ps_script = f"""
-    $template = @"
-<toast {activation}>
-    <visual>
-        <binding template="ToastGeneric">
-            <text>{safe_title}</text>
-            <text>{safe_msg}</text>
-        </binding>
-    </visual>
-</toast>
-"@
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
     $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-    $xml.LoadXml($template)
+    $xml.LoadXml('{ps_xml}')
     $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("DeskPilot")
+    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('DeskPilot')
     $notifier.Show($toast)
     """
 
@@ -98,3 +110,4 @@ def send_windows_toast(
         return res.returncode == 0
     except Exception:
         return False
+

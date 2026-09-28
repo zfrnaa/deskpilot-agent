@@ -646,7 +646,7 @@ async def main_async(
         try:
             from deskpilot.ui.notifications import format_boot_notification, send_windows_toast
             title, body = format_boot_notification(state)
-            send_windows_toast(title, body)
+            send_windows_toast(title, body, action_command="wt.exe")
         except Exception:
             pass
         return 0

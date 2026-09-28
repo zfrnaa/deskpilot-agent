@@ -392,6 +392,17 @@ def test_detect_color_system_defers_when_environment_is_descriptive(monkeypatch)
     assert theme.detect_color_system(io.StringIO(), environ=env) is None
 
 
+def test_detect_color_system_and_get_console_env_overrides(monkeypatch):
+    """Verify DESKPILOT_COLOR_SYSTEM and DESKPILOT_FORCE_COLOR take effect."""
+    monkeypatch.setenv("DESKPILOT_COLOR_SYSTEM", "truecolor")
+    assert theme.detect_color_system(io.StringIO()) == "truecolor"
+
+    monkeypatch.setenv("DESKPILOT_FORCE_COLOR", "1")
+    c = theme.get_console()
+    assert c.color_system == "truecolor"
+    assert c.is_terminal is True
+
+
 def test_ui_package_does_not_import_langgraph():
     """Verify importing the whole UI package stays off the heavy boot path."""
     code = (

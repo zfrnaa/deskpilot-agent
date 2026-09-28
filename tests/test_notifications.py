@@ -46,8 +46,14 @@ def test_format_boot_notification_empty_state():
 def test_send_windows_toast_invokes_powershell():
     with patch("subprocess.run") as mock_run:
         mock_run.return_value.returncode = 0
-        success = send_windows_toast("Test Title", "Test Message", action_command="notepad.exe")
+        success = send_windows_toast("Test Title & More", "Cleaned $100 & 5 files", action_command="wt.exe")
         assert success is True
         mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert "powershell" in args[0].lower()
+        cmd_args = mock_run.call_args[0][0]
+        assert "powershell" in cmd_args[0].lower()
+        script = cmd_args[-1]
+        assert "Test Title &amp; More" in script
+        assert "Cleaned $100 &amp; 5 files" in script
+        assert "wt.exe" in script
+        assert "Open Dashboard" in script
+

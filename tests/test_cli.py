@@ -688,6 +688,8 @@ async def test_main_async_startup_sends_toast():
         exit_code = await main_async(settings=settings, startup=True)
         assert exit_code == 0
         mock_toast.assert_called_once()
+        _, kwargs = mock_toast.call_args
+        assert kwargs.get("action_command") == "wt.exe"
 
 
 @pytest.mark.asyncio
