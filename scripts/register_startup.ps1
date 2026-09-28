@@ -96,7 +96,29 @@ if ($StartupFlag) {
     $cliArgs += " --startup"
 }
 
-Write-Host "Command to register: $uvPath $cliArgs" -ForegroundColor Cyan
+# Check for Windows Terminal (wt.exe) to enable rich 24-bit truecolor and glyphs
+$wtCommand = Get-Command "wt.exe" -ErrorAction SilentlyContinue
+if (-not $wtCommand) {
+    $appLocalWt = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\wt.exe"
+    if (Test-Path $appLocalWt) {
+        $wtPath = $appLocalWt
+    } else {
+        $wtPath = $null
+    }
+} else {
+    $wtPath = $wtCommand.Source
+}
+
+if ($wtPath -and -not $StartupFlag) {
+    $execPath = $wtPath
+    $taskArgs = "-w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" $cliArgs"
+    Write-Host "Configuring launch via Windows Terminal: $wtPath" -ForegroundColor Cyan
+} else {
+    $execPath = $uvPath
+    $taskArgs = $cliArgs
+}
+
+Write-Host "Command to register: $execPath $taskArgs" -ForegroundColor Cyan
 
 # 4. Register via Scheduled Task
 if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
@@ -115,7 +137,7 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
             if ($taskExists -and -not $Force) {
                 Write-Warning "Scheduled task '$TaskName' already exists. Use -Force to overwrite."
             } else {
-                $action = New-ScheduledTaskAction -Execute $uvPath -Argument $cliArgs -WorkingDirectory $WorkingDirectory
+                $action = New-ScheduledTaskAction -Execute $execPath -Argument $taskArgs -WorkingDirectory $WorkingDirectory
                 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
                 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
                 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
@@ -136,7 +158,7 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
                 $schArgs = @(
                     "/Create",
                     "/TN", $TaskName,
-                    "/TR", "`"$uvPath`" $cliArgs",
+                    "/TR", "`"$execPath`" $taskArgs",
                     "/SC", "ONLOGON",
                     "/F"
                 )
@@ -171,8 +193,8 @@ if ($Method -eq "StartupFolder" -or $Method -eq "All") {
             } else {
                 $wscript = New-Object -ComObject WScript.Shell
                 $shortcut = $wscript.CreateShortcut($shortcutPath)
-                $shortcut.TargetPath = $uvPath
-                $shortcut.Arguments = $cliArgs
+                $shortcut.TargetPath = $execPath
+                $shortcut.Arguments = $taskArgs
                 $shortcut.WorkingDirectory = $WorkingDirectory
                 $shortcut.Description = "DeskPilot Morning Command Center"
                 $shortcut.Save()

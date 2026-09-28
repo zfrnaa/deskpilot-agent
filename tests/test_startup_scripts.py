@@ -39,6 +39,8 @@ def test_register_startup_script_contains_key_elements():
     assert "StartupFlag" in content or "startup" in content.lower()
     assert "ScheduledTask" in content or "schtasks" in content
     assert "--directory" in content
+    assert "wt.exe" in content
+    assert "$wtPath -and -not $StartupFlag" in content
 
 
 def test_unregister_startup_script_contains_key_elements():
