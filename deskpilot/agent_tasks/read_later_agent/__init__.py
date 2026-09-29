@@ -7,6 +7,7 @@ from deskpilot.agent_tasks.read_later_agent.graph import (
     fetch_unread_items_node,
     interactive_or_action_node,
     run_read_later_flow,
+    run_read_later_digest,
     select_daily_recommendation,
     update_notion_status_node,
 )
@@ -34,4 +35,5 @@ __all__ = [
     "update_notion_status_node",
     "build_read_later_graph",
     "run_read_later_flow",
+    "run_read_later_digest",
 ]

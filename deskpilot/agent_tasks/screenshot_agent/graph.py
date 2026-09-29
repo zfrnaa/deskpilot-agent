@@ -355,4 +355,16 @@ async def run_screenshot_triage(
         fallback_reasoning_llm=fallback_reasoning_llm,
     )
 
-    return await graph.ainvoke(initial_state, config={"run_name": "ScreenshotTriageAgent"})
+    return await graph.ainvoke(
+        initial_state,
+        config={
+            "run_name": "ScreenshotTriageAgent",
+            "tags": ["agent:screenshot_triage", f"model:{settings.gemini_model}"],
+            "metadata": {
+                "auto_approve": auto_approve,
+                "max_images": settings.screenshots.max_images,
+                "delete_synced_local": settings.screenshots.delete_synced_local,
+            },
+        },
+    )
+

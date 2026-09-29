@@ -198,4 +198,15 @@ async def run_downloads_hygiene(
         auto_approve=auto_approve,
     )
 
-    return await graph.ainvoke(initial_state, config={"run_name": "DownloadsHygieneAgent"})
+    return await graph.ainvoke(
+        initial_state,
+        config={
+            "run_name": "DownloadsHygieneAgent",
+            "tags": ["agent:downloads_hygiene"],
+            "metadata": {
+                "auto_approve": auto_approve,
+                "stale_days": settings.downloads.stale_days,
+            },
+        },
+    )
+

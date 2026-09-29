@@ -266,4 +266,14 @@ async def run_read_later_flow(
         "interactive": interactive,
     }
 
-    return await graph.ainvoke(initial_state, config={"run_name": "NotionReadLaterAgent"})
+    return await graph.ainvoke(
+        initial_state,
+        config={
+            "run_name": "ReadLaterAgent",
+            "tags": ["agent:read_later"],
+        },
+    )
+
+
+run_read_later_digest = run_read_later_flow
+

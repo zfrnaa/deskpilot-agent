@@ -361,7 +361,13 @@ def run_react_consolidation_agent(
         target_page_id: str | None = None
 
         for _ in range(max_turns):
-            ai_msg = llm_with_tools.invoke(current_messages)
+            ai_msg = llm_with_tools.invoke(
+                current_messages,
+                config={
+                    "run_name": f"ConsolidateNote_{item.filename or item.title}",
+                    "tags": ["agent:react_consolidation"],
+                },
+            )
             current_messages.append(ai_msg)
 
             if not ai_msg.tool_calls:
