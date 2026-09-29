@@ -468,6 +468,7 @@ def test_no_utf8_bom_in_downloads_agent_files():
     base_dir = Path(__file__).resolve().parent.parent
     paths_to_check = [
         base_dir / "tests" / "test_downloads_agent.py",
+        base_dir / "tests" / "test_downloads_hitl.py",
         base_dir / "deskpilot" / "agent_tasks" / "downloads_agent" / "__init__.py",
         base_dir / "deskpilot" / "agent_tasks" / "downloads_agent" / "state.py",
         base_dir / "deskpilot" / "agent_tasks" / "downloads_agent" / "actions.py",

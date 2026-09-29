@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +138,8 @@ def execute_actions(state: DownloadsAgentState) -> dict[str, Any]:
 def build_downloads_hygiene_graph(
     review_func: Callable[[dict[str, list[DownloadItem]]], list[str]] | None = None,
     auto_approve: bool = False,
+    checkpointer: Any = None,
+    interrupt_before: Sequence[str] | None = None,
 ) -> CompiledStateGraph:
     """Build and compile the LangGraph workflow for Downloads Hygiene."""
     builder = StateGraph(DownloadsAgentState)
@@ -173,7 +175,36 @@ def build_downloads_hygiene_graph(
     builder.add_edge("human_review_node", "execute_actions")
     builder.add_edge("execute_actions", END)
 
-    return builder.compile(name="DownloadsHygieneAgent")
+    return builder.compile(
+        checkpointer=checkpointer,
+        interrupt_before=interrupt_before,
+        name="DownloadsHygieneAgent",
+    )
+
+
+def get_hygiene_state(graph: CompiledStateGraph, thread_id: str) -> Any:
+    """Retrieve the current state snapshot for a specific thread in the downloads hygiene graph."""
+    return graph.get_state({"configurable": {"thread_id": thread_id}})
+
+
+async def resume_downloads_hygiene(
+    graph: CompiledStateGraph,
+    thread_id: str,
+    approved_actions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Resume execution of an interrupted downloads hygiene graph run.
+
+    Optionally updates the state with modified approved_actions before continuing.
+    """
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "run_name": "DownloadsHygieneAgentResume",
+        "tags": ["agent:downloads_hygiene", "hitl:resume"],
+    }
+    if approved_actions is not None:
+        graph.update_state(config, {"approved_actions": approved_actions})
+
+    return await graph.ainvoke(None, config=config)
 
 
 async def run_downloads_hygiene(

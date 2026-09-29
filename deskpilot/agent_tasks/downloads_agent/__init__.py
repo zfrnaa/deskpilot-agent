@@ -15,8 +15,10 @@ from deskpilot.agent_tasks.downloads_agent.graph import (
     build_downloads_hygiene_graph,
     categorize_and_analyze,
     execute_actions,
+    get_hygiene_state,
     human_review_node,
     propose_plan,
+    resume_downloads_hygiene,
     run_downloads_hygiene,
     scan_downloads,
 )
@@ -47,4 +49,6 @@ __all__ = [
     "execute_actions",
     "build_downloads_hygiene_graph",
     "run_downloads_hygiene",
+    "get_hygiene_state",
+    "resume_downloads_hygiene",
 ]
