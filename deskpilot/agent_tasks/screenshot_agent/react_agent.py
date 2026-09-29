@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool, tool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
     build_database_page_payload,
@@ -414,6 +414,12 @@ def run_react_consolidation_agent(
         action: str | None = None
         target_page_id: str | None = None
 
+        tool_schemas = {
+            "search_notion": SearchNotionInput,
+            "append_to_page": AppendToPageInput,
+            "create_database_page": CreateDatabasePageInput,
+        }
+
         for _ in range(max_turns):
             ai_msg = llm_with_tools.invoke(
                 current_messages,
@@ -432,30 +438,53 @@ def run_react_consolidation_agent(
                 tool_args = tool_call.get("args") or {}
                 tool_id = tool_call.get("id") or "call_id"
 
-                if tool_name in tools_map:
-                    tool_func = tools_map[tool_name]
-                    tool_result = tool_func.invoke(tool_args)
-
-                    if tool_name == "append_to_page":
-                        action = "append"
-                        target_page_id = tool_args.get("page_id")
-                    elif tool_name == "create_database_page":
-                        action = "create"
-                        target_page_id = str(tool_result) if tool_result else ""
-
-                    current_messages.append(
-                        ToolMessage(
-                            content=str(tool_result),
-                            tool_call_id=tool_id,
-                        )
-                    )
-                else:
+                if tool_name not in tools_map:
                     current_messages.append(
                         ToolMessage(
                             content=f"Unknown tool: {tool_name}",
                             tool_call_id=tool_id,
                         )
                     )
+                    continue
+
+                if tool_name in tool_schemas:
+                    schema_cls = tool_schemas[tool_name]
+                    try:
+                        validated_model = schema_cls.model_validate(tool_args)
+                        tool_args = validated_model.model_dump()
+                    except ValidationError as val_err:
+                        logger.warning(
+                            "Tool validation error for '%s': %s", tool_name, val_err
+                        )
+                        error_message = (
+                            f"ToolValidationError: Arguments for tool '{tool_name}' failed schema validation:\n"
+                            f"{val_err}\n"
+                            "Please correct the parameters and retry."
+                        )
+                        current_messages.append(
+                            ToolMessage(
+                                content=error_message,
+                                tool_call_id=tool_id,
+                            )
+                        )
+                        continue
+
+                tool_func = tools_map[tool_name]
+                tool_result = tool_func.invoke(tool_args)
+
+                if tool_name == "append_to_page":
+                    action = "append"
+                    target_page_id = tool_args.get("page_id")
+                elif tool_name == "create_database_page":
+                    action = "create"
+                    target_page_id = str(tool_result) if tool_result else ""
+
+                current_messages.append(
+                    ToolMessage(
+                        content=str(tool_result),
+                        tool_call_id=tool_id,
+                    )
+                )
 
             if action in ("append", "create"):
                 break
