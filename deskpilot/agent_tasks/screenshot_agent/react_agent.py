@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool, tool
+from pydantic import BaseModel, Field, field_validator
 
 from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
     build_database_page_payload,
@@ -17,6 +18,56 @@ from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
 from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotItem
 
 logger = logging.getLogger(__name__)
+
+
+class SearchNotionInput(BaseModel):
+    """Input schema for search_notion tool."""
+
+    query: str = Field(default="", description="Query string to search page titles or tags")
+    subject: str = Field(default="", description="Subject or category tag to filter pages")
+
+
+class AppendToPageInput(BaseModel):
+    """Input schema for append_to_page tool."""
+
+    page_id: str = Field(description="Target Notion page ID (32-hex or UUID) to append content to")
+    section_title: str = Field(description="Heading title for the newly appended section")
+    rationale: str = Field(default="", description="Explanation or reasoning for appending to this page")
+    file_upload_id: str = Field(default="", description="Notion file upload ID for the screenshot image")
+
+    @field_validator("page_id")
+    @classmethod
+    def validate_page_id(cls, v: str) -> str:
+        s = v.strip()
+        if not s or not is_valid_uuid(s):
+            raise ValueError(f"Invalid page_id: '{v}'. Must be a valid 32-hex Notion UUID.")
+        return s
+
+    @field_validator("section_title")
+    @classmethod
+    def validate_section_title(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("section_title must not be empty.")
+        return s
+
+
+class CreateDatabasePageInput(BaseModel):
+    """Input schema for create_database_page tool."""
+
+    title: str = Field(description="Title of the new Notion database page")
+    subject: str = Field(default="General", description="Subject or category tag for the page")
+    rationale: str = Field(default="", description="Reasoning or notes to include on the page")
+    file_upload_id: str = Field(default="", description="Notion file upload ID for the screenshot image")
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("title must not be empty.")
+        return s
+
 
 
 def search_notion(
@@ -140,7 +191,7 @@ def search_notion(
 def append_to_page(
     page_id: str,
     section_title: str,
-    rationale: str,
+    rationale: str = "",
     file_upload_id: str = "",
     *,
     notion_client: Any,
@@ -190,8 +241,8 @@ def append_to_page(
 
 def create_database_page(
     title: str,
-    subject: str,
-    rationale: str,
+    subject: str = "General",
+    rationale: str = "",
     file_upload_id: str = "",
     *,
     notion_client: Any,
@@ -251,7 +302,7 @@ def create_notion_react_tools(
     def _append_to_page(
         page_id: str,
         section_title: str,
-        rationale: str,
+        rationale: str = "",
         file_upload_id: str = "",
     ) -> bool:
         """Append section heading, details, and screenshot image to an existing Notion page."""
@@ -266,8 +317,8 @@ def create_notion_react_tools(
 
     def _create_database_page(
         title: str,
-        subject: str,
-        rationale: str,
+        subject: str = "General",
+        rationale: str = "",
         file_upload_id: str = "",
     ) -> str:
         """Create a brand new database page for this screenshot."""
@@ -287,16 +338,19 @@ def create_notion_react_tools(
             func=_search_notion,
             name="search_notion",
             description="Search existing Notion database pages matching query or subject tag.",
+            args_schema=SearchNotionInput,
         ),
         StructuredTool.from_function(
             func=_append_to_page,
             name="append_to_page",
             description="Append content and image as a new section to an existing Notion page.",
+            args_schema=AppendToPageInput,
         ),
         StructuredTool.from_function(
             func=_create_database_page,
             name="create_database_page",
             description="Create a new Notion page in the database.",
+            args_schema=CreateDatabasePageInput,
         ),
     ]
 

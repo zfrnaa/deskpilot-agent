@@ -28,8 +28,8 @@ def is_valid_uuid(val: Any) -> bool:
         return True
     except Exception:
         pass
-    # Support test mock identifiers like fu_123 or upload-123
-    if s.startswith("fu_") or s.startswith("upload-") or s.startswith("test-"):
+    # Support test mock identifiers like fu_123, upload-123, or page-123
+    if s.startswith("fu_") or s.startswith("upload-") or s.startswith("test-") or s.startswith("page-"):
         return True
     return False
 
