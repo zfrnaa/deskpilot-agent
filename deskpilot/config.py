@@ -352,6 +352,11 @@ class Settings(BaseSettings):
             return True
         return False
 
+    def get_langsmith_project_url(self) -> str:
+        """Return the LangSmith project dashboard URL."""
+        project = self.langsmith_project or self.langchain_project or "DeskPilot"
+        return f"https://smith.langchain.com/projects/p/{project}"
+
     @classmethod
     def load(
         cls,
