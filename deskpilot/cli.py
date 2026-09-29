@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import subprocess
 import sys
 from collections.abc import Callable
 from typing import Any
+
+import langsmith
 
 from rich.console import Console
 from rich.panel import Panel
@@ -254,7 +257,11 @@ def _create_calendar_panel(state: BootState) -> Panel:
     )
 
 
-def render_dashboard(state: BootState, console: Console | None = None) -> None:
+def render_dashboard(
+    state: BootState,
+    console: Console | None = None,
+    settings: Settings | None = None,
+) -> None:
     """Render the morning boot terminal dashboard using Rich components."""
     c = ui_theme.get_console(console)
 
@@ -266,6 +273,26 @@ def render_dashboard(state: BootState, console: Console | None = None) -> None:
         unicode_ok=ui_theme.supports_glyphs(getattr(c, "file", None)),
     )
     c.print(header_panel)
+
+    # Tracing indicator if enabled
+    tracing_enabled = False
+    project = "DeskPilot"
+    url = "https://smith.langchain.com/projects/p/DeskPilot"
+
+    if settings is not None:
+        tracing_enabled = bool(settings.langsmith_tracing or settings.langchain_tracing_v2)
+        project = settings.langsmith_project or settings.langchain_project or "DeskPilot"
+        url = settings.get_langsmith_project_url()
+    elif os.getenv("LANGSMITH_TRACING") == "true" or os.getenv("LANGCHAIN_TRACING_V2") == "true":
+        tracing_enabled = True
+        project = os.getenv("LANGSMITH_PROJECT") or os.getenv("LANGCHAIN_PROJECT") or "DeskPilot"
+        url = f"https://smith.langchain.com/projects/p/{project}"
+
+    if tracing_enabled:
+        icon = "\U0001F4E1 " if ui_theme.supports_glyphs(getattr(c, "file", None)) else ""
+        c.print(
+            f"[dim]{icon}LangSmith Tracing: [green]Active[/green] (Project: {project}) [link={url}]{url}[/link][/dim]"
+        )
 
     hygiene_panel = _create_hygiene_panel(state)
     winget_panel = _create_winget_panel(state)
@@ -354,8 +381,79 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run in non-interactive startup mode (executes boot sequence, renders dashboard, and exits without waiting for user input)",
     )
+    parser.add_argument(
+        "--check-tracing",
+        action="store_true",
+        help="Run LangSmith tracing health check and connectivity diagnostic",
+    )
     parsed, _ = parser.parse_known_args(args)
     return parsed
+
+
+def check_tracing_health(settings: Settings, console: Console | None = None) -> bool:
+    """Check LangSmith tracing configuration and test connectivity to LangSmith API."""
+    c = ui_theme.get_console(console)
+    is_tracing = bool(settings.langsmith_tracing or settings.langchain_tracing_v2)
+
+    if not is_tracing:
+        c.print(
+            Panel(
+                "[yellow]Tracing is currently disabled.[/yellow]\n"
+                "To enable tracing, set [bold]LANGSMITH_TRACING=true[/bold] in your [cyan].env[/cyan] file.",
+                title="[bold yellow]LangSmith Tracing: Disabled[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+        return False
+
+    api_key = settings.langsmith_api_key or settings.langchain_api_key
+    if not api_key:
+        c.print(
+            Panel(
+                "[bold red]LANGSMITH_API_KEY is missing.[/bold red]\n"
+                "Tracing is enabled, but no API key was provided.\n"
+                "Please configure [bold]LANGSMITH_API_KEY[/bold] in your [cyan].env[/cyan] file.",
+                title="[bold red]LangSmith Tracing: Missing API Key[/bold red]",
+                border_style="red",
+            )
+        )
+        return False
+
+    project = settings.langsmith_project or settings.langchain_project or "DeskPilot"
+    url = settings.get_langsmith_project_url()
+
+    try:
+        client = langsmith.Client(api_key=api_key)
+        try:
+            client.read_project(project_name=project)
+        except Exception as read_err:
+            if "not found" in str(read_err).lower() or type(read_err).__name__ == "LangSmithNotFoundError":
+                pass
+            else:
+                raise read_err
+
+        c.print(
+            Panel(
+                f"[bold]Status:[/bold] [green]Connected[/green]\n"
+                f"[bold]Project:[/bold] {project}\n"
+                f"[bold]Dashboard URL:[/bold] [link={url}]{url}[/link]",
+                title="[bold green]LangSmith Tracing Health[/bold green]",
+                border_style="green",
+            )
+        )
+        return True
+    except Exception as err:
+        c.print(
+            Panel(
+                f"[bold]Status:[/bold] [red]Connection Failed[/red]\n"
+                f"[bold]Project:[/bold] {project}\n"
+                f"[bold]Error:[/bold] {err}\n"
+                f"[bold]Dashboard URL:[/bold] [link={url}]{url}[/link]",
+                title="[bold red]LangSmith Tracing Health Error[/bold red]",
+                border_style="red",
+            )
+        )
+        return False
 
 
 async def execute_menu_action(
@@ -620,6 +718,7 @@ async def main_async(
     settings: Settings | None = None,
     prompt_func: Callable[[str], str] = input,
     startup: bool = False,
+    check_tracing: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -630,6 +729,10 @@ async def main_async(
             c.print(f"[red]Error loading configuration: {e}[/red]")
             return 1
 
+    if check_tracing:
+        healthy = check_tracing_health(settings, console=c)
+        return 0 if healthy else 1
+
     # Initialize LangSmith / LangChain tracing if configured
     settings.setup_tracing()
 
@@ -639,7 +742,7 @@ async def main_async(
         state = await run_phase1_boot_sequence(settings)
 
     # Render terminal dashboard
-    render_dashboard(state, console=c)
+    render_dashboard(state, console=c, settings=settings)
 
     if startup:
         c.print("[dim]Startup mode active: boot sequence completed successfully.[/dim]")
@@ -670,7 +773,7 @@ async def main_async(
                 c.print("[green]Re-authorization successful! Fetching today's agenda...[/green]")
                 new_cal_res = await fetch_today_agenda(config=settings.calendar)
                 state.calendar_agenda = new_cal_res
-                render_dashboard(state, console=c)
+                render_dashboard(state, console=c, settings=settings)
             except Exception as auth_exc:
                 c.print(f"[red]Google Calendar authorization failed: {auth_exc}[/red]")
 
@@ -717,7 +820,10 @@ def main(args: list[str] | None = None) -> None:
     _configure_stdio()
     parsed = parse_args(args if args is not None else sys.argv[1:])
     try:
-        sys.exit(asyncio.run(main_async(startup=parsed.startup)))
+        if parsed.check_tracing:
+            sys.exit(asyncio.run(main_async(check_tracing=True)))
+        else:
+            sys.exit(asyncio.run(main_async(startup=parsed.startup)))
     except KeyboardInterrupt:
         sys.exit(0)
 
