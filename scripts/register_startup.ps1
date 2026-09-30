@@ -218,4 +218,30 @@ if ($Method -eq "StartupFolder" -or $Method -eq "All") {
     }
 }
 
+# 6. Register URL Protocol Handler for Toast Click-to-Open Activation
+Write-Host "`nRegistering 'deskpilot://' protocol handler for notification click activation..." -ForegroundColor Yellow
+try {
+    $protocolRoot = "HKCU:\Software\Classes\deskpilot"
+    $protocolCmd = "$protocolRoot\shell\open\command"
+    if (-not (Test-Path $protocolRoot)) {
+        New-Item -Path $protocolRoot -Force | Out-Null
+    }
+    Set-ItemProperty -Path $protocolRoot -Name "(Default)" -Value "URL:DeskPilot Protocol"
+    Set-ItemProperty -Path $protocolRoot -Name "URL Protocol" -Value ""
+    if (-not (Test-Path $protocolCmd)) {
+        New-Item -Path $protocolCmd -Force | Out-Null
+    }
+    
+    if ($wtPath) {
+        $handlerCmd = "`"$wtPath`" -w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot"
+    } else {
+        $handlerCmd = "`"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot"
+    }
+    Set-ItemProperty -Path $protocolCmd -Name "(Default)" -Value $handlerCmd
+    Write-Host "[OK] 'deskpilot://' protocol handler registered successfully." -ForegroundColor Green
+} catch {
+    Write-Warning "Could not register 'deskpilot://' protocol handler: $_"
+}
+
 Write-Host "`nDeskPilot startup registration complete!" -ForegroundColor Green
+

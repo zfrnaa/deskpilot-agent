@@ -749,10 +749,11 @@ async def main_async(
         try:
             from deskpilot.ui.notifications import format_boot_notification, send_windows_toast
             title, body = format_boot_notification(state)
-            send_windows_toast(title, body, action_command="wt.exe")
+            send_windows_toast(title, body, action_command="deskpilot://open")
         except Exception:
             pass
         return 0
+
 
     # If calendar token is unconfigured or failed authorization/refresh, prompt user to re-authorize
     cal_res = state.calendar_agenda

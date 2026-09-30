@@ -83,4 +83,21 @@ if ($Method -eq "StartupFolder" -or $Method -eq "All") {
     }
 }
 
+# 3. Remove URL Protocol Handler
+if ($Method -eq "All") {
+    Write-Host "Checking for 'deskpilot://' protocol handler..." -ForegroundColor Cyan
+    $protocolRoot = "HKCU:\Software\Classes\deskpilot"
+    if (Test-Path $protocolRoot) {
+        if ($PSCmdlet.ShouldProcess($protocolRoot, "Delete URL Protocol Handler")) {
+            try {
+                Remove-Item -Path $protocolRoot -Recurse -Force -ErrorAction Stop
+                Write-Host "[OK] 'deskpilot://' protocol handler removed." -ForegroundColor Green
+            } catch {
+                Write-Error "Failed to delete protocol handler: $_"
+            }
+        }
+    }
+}
+
 Write-Host "`nDeskPilot unregistration complete." -ForegroundColor Green
+
