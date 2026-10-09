@@ -332,9 +332,9 @@ def render_dashboard(
 def normalize_menu_choice(raw: str) -> str:
     """Normalize input choice by stripping whitespace, BOM markers, and brackets."""
     clean = raw.strip().strip("'\"").strip("\ufeff\xef\xbb\xbf\x00 ")
-    if clean in {"0", "1", "2", "3", "4", "5"}:
+    if clean in {"0", "1", "2", "3", "4", "5", "6"}:
         return clean
-    digits = [ch for ch in clean if ch in "012345"]
+    digits = [ch for ch in clean if ch in "0123456"]
     if len(digits) == 1:
         return digits[0]
     return clean
@@ -356,6 +356,7 @@ def prompt_action_menu(
     menu_table.add_row("[3]", "Clean Floorp Bookmarks (Launch floorp bookmark preview)")
     menu_table.add_row("[4]", "Upgrade Winget Packages (Execute interactive winget upgrade)")
     menu_table.add_row("[5]", "Notion Read-Later Digest (Preview pick & mark read)")
+    menu_table.add_row("[6]", "Run Agent Evaluations (LangSmith Benchmark)")
     menu_table.add_row("[0]", "Dismiss & Exit")
 
     c.print(
@@ -367,7 +368,7 @@ def prompt_action_menu(
         )
     )
     prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
-    return normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-5]: "))
+    return normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -385,6 +386,22 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "--check-tracing",
         action="store_true",
         help="Run LangSmith tracing health check and connectivity diagnostic",
+    )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Run agent evaluation suite and benchmark",
+    )
+    parser.add_argument(
+        "--eval-target",
+        default="downloads",
+        choices=["downloads"],
+        help="Agent target for evaluation",
+    )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Run evaluations locally without syncing to LangSmith",
     )
     parsed, _ = parser.parse_known_args(args)
     return parsed
@@ -708,8 +725,25 @@ async def execute_menu_action(
         except Exception as e:
             c.print(f"[red]Read-Later Digest failed: {e}[/red]")
         return True
+    elif normalized_choice == "6":
+        c.print("[cyan]Starting Agent Evaluations (LangSmith Benchmark)...[/cyan]")
+        try:
+            from deskpilot.evals.runner import run_downloads_evaluation
+
+            cfg = settings or load_settings()
+            api_key = cfg.langsmith_api_key or cfg.langchain_api_key
+            if api_key:
+                c.print("[cyan]Running evaluation and logging to LangSmith...[/cyan]")
+                client = langsmith.Client(api_key=api_key)
+                run_downloads_evaluation(client=client, local_only=False)
+            else:
+                c.print("[cyan]Running evaluation in local-only benchmark mode...[/cyan]")
+                run_downloads_evaluation(local_only=True)
+        except Exception as e:
+            c.print(f"[red]Agent Evaluations failed: {e}[/red]")
+        return True
     else:
-        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 5.[/bold red]")
+        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 6.[/bold red]")
         return True
 
 
@@ -719,6 +753,9 @@ async def main_async(
     prompt_func: Callable[[str], str] = input,
     startup: bool = False,
     check_tracing: bool = False,
+    run_eval: bool = False,
+    eval_target: str = "downloads",
+    local_only: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -732,6 +769,23 @@ async def main_async(
     if check_tracing:
         healthy = check_tracing_health(settings, console=c)
         return 0 if healthy else 1
+
+    if run_eval:
+        try:
+            from deskpilot.evals.runner import run_downloads_evaluation
+
+            api_key = settings.langsmith_api_key or settings.langchain_api_key
+            if not local_only and api_key:
+                c.print(f"[cyan]Running {eval_target} evaluation against LangSmith...[/cyan]")
+                client = langsmith.Client(api_key=api_key)
+                run_downloads_evaluation(client=client, local_only=False)
+            else:
+                c.print(f"[cyan]Running {eval_target} evaluation in local-only benchmark mode...[/cyan]")
+                run_downloads_evaluation(local_only=True)
+            return 0
+        except Exception as e:
+            c.print(f"[red]Evaluation run failed: {e}[/red]")
+            return 1
 
     # Initialize LangSmith / LangChain tracing if configured
     settings.setup_tracing()
@@ -823,6 +877,16 @@ def main(args: list[str] | None = None) -> None:
     try:
         if parsed.check_tracing:
             sys.exit(asyncio.run(main_async(check_tracing=True)))
+        elif parsed.eval:
+            sys.exit(
+                asyncio.run(
+                    main_async(
+                        run_eval=True,
+                        eval_target=parsed.eval_target,
+                        local_only=parsed.local_only,
+                    )
+                )
+            )
         else:
             sys.exit(asyncio.run(main_async(startup=parsed.startup)))
     except KeyboardInterrupt:
