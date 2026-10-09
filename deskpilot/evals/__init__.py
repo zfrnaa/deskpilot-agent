@@ -12,6 +12,10 @@ from deskpilot.evals.evaluators import (
     evaluate_reasoning_quality,
     evaluate_safety,
 )
+from deskpilot.evals.runner import (
+    predict_downloads_scenario,
+    run_downloads_evaluation,
+)
 
 __all__ = [
     "BenchmarkExample",
@@ -22,5 +26,7 @@ __all__ = [
     "evaluate_hitl_compliance",
     "evaluate_reasoning_quality",
     "evaluate_safety",
+    "predict_downloads_scenario",
+    "run_downloads_evaluation",
 ]
 
