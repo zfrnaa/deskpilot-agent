@@ -57,7 +57,7 @@ def test_default_config_models():
     winget_cfg = WingetConfig()
     assert winget_cfg.enabled is True
     assert winget_cfg.timeout_secs == 15
-    assert winget_cfg.ignore_packages == ["IObit.AdvancedSystemCare", "RevoUninstaller.RevoUninstallerPro"]
+    assert winget_cfg.ignore_packages == ["IObit.AdvancedSystemCare", "IObit.DriverBooster", "RevoUninstaller.RevoUninstallerPro"]
 
     ollama_cfg = OllamaConfig()
     assert ollama_cfg.model == "minicpm-v"

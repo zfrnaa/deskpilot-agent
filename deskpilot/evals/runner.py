@@ -49,11 +49,16 @@ def _map_category_to_str(cat: DownloadFileCategory, item: DownloadItem) -> str:
         return "documents"
     if item.category == DownloadFileCategory.ARCHIVE:
         return "archives"
+    if item.category == DownloadFileCategory.INSTALLER:
+        return "installers"
     if item.category == DownloadFileCategory.MEDIA:
         ext = item.path.suffix.lower()
         if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"}:
             return "images"
         return "media"
+    ext = item.path.suffix.lower()
+    if ext in {".dll", ".sys", ".drv"}:
+        return "system"
     if item.proposed_action == ProposedAction.KEEP:
         return "keep"
     return cat.value
