@@ -266,6 +266,7 @@ def test_prompt_action_menu_renders_and_returns_choice():
     assert "[3]" in output and "Floorp Bookmarks" in output
     assert "[4]" in output and "Upgrade Winget" in output
     assert "[5]" in output and "Notion Read-Later Digest" in output
+    assert "[6]" in output and "Run Agent Evaluations" in output
     assert "[0]" in output and "Dismiss & Exit" in output
 
 
@@ -628,6 +629,8 @@ def test_normalize_menu_choice():
     assert normalize_menu_choice("[2]") == "2"
     assert normalize_menu_choice("3.") == "3"
     assert normalize_menu_choice("4") == "4"
+    assert normalize_menu_choice("6") == "6"
+    assert normalize_menu_choice("[6]") == "6"
     assert normalize_menu_choice("\ufeff0") == "0"
     assert normalize_menu_choice("\xef\xbb\xbf0") == "0"
     assert normalize_menu_choice("invalid") == "invalid"
@@ -772,4 +775,91 @@ def test_lazy_loading_of_langgraph_in_cli():
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     assert res.returncode == 0, f"Lazy loading check failed: {res.stderr}"
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_6_evaluations_local_mode():
+    """Verify that choice '6' executes run_downloads_evaluation locally when no API key configured."""
+    console = Console(record=True, width=100)
+    settings = Settings()
+    settings.langsmith_api_key = None
+    settings.langchain_api_key = None
+
+    with patch("deskpilot.evals.runner.run_downloads_evaluation") as mock_eval:
+        should_continue = await execute_menu_action("6", console=console, settings=settings)
+        assert should_continue is True
+        mock_eval.assert_called_once_with(local_only=True)
+        output = console.export_text()
+        assert "Agent Evaluations" in output
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_6_evaluations_langsmith_mode():
+    """Verify that choice '6' initializes LangSmith client when API key configured."""
+    console = Console(record=True, width=100)
+    settings = Settings()
+    settings.langsmith_api_key = "ls__test_api_key"
+
+    with (
+        patch("deskpilot.evals.runner.run_downloads_evaluation") as mock_eval,
+        patch("langsmith.Client") as mock_client_cls,
+    ):
+        mock_client_instance = MagicMock()
+        mock_client_cls.return_value = mock_client_instance
+
+        should_continue = await execute_menu_action("6", console=console, settings=settings)
+        assert should_continue is True
+        mock_client_cls.assert_called_once_with(api_key="ls__test_api_key")
+        mock_eval.assert_called_once_with(client=mock_client_instance, local_only=False)
+
+
+def test_parse_args_eval_flags():
+    """Verify that parse_args parses --eval, --eval-target, and --local-only arguments."""
+    from deskpilot.cli import parse_args
+
+    args = parse_args(["--eval"])
+    assert args.eval is True
+    assert args.eval_target == "downloads"
+    assert args.local_only is False
+
+    args_local = parse_args(["--eval", "--local-only"])
+    assert args_local.eval is True
+    assert args_local.local_only is True
+
+
+@pytest.mark.asyncio
+async def test_main_async_run_eval_mode():
+    """Verify main_async(run_eval=True) executes evaluation harness and returns 0."""
+    settings = Settings()
+    settings.langsmith_api_key = None
+    settings.langchain_api_key = None
+    console = Console(record=True, width=120)
+
+    with patch("deskpilot.evals.runner.run_downloads_evaluation") as mock_eval:
+        exit_code = await main_async(
+            console=console,
+            settings=settings,
+            run_eval=True,
+            eval_target="downloads",
+            local_only=True,
+        )
+        assert exit_code == 0
+        mock_eval.assert_called_once_with(local_only=True)
+
+
+def test_main_entrypoint_parses_eval_arguments():
+    """Verify that main parses --eval and passes flags to main_async."""
+    with (
+        patch("deskpilot.cli.main_async", new_callable=AsyncMock) as mock_main_async,
+        patch("deskpilot.cli.sys.exit") as mock_exit,
+    ):
+        mock_main_async.return_value = 0
+        main(["--eval", "--local-only"])
+        mock_main_async.assert_awaited_once_with(
+            run_eval=True,
+            eval_target="downloads",
+            local_only=True,
+        )
+        mock_exit.assert_called_once_with(0)
+
 
