@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 620" width="100%" height="100%" style="background-color: #0d1117; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Geist', Roboto, sans-serif;">
+  <defs>
+    <!-- Grid pattern for subtle editorial paper background -->
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.8" fill="#21262d" />
+    </pattern>
+    <!-- Crisp directional arrows -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1 2 L 8 5 L 1 8 z" fill="#8b949e" />
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1 2 L 8 5 L 1 8 z" fill="#58a6ff" />
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 1 2 L 8 5 L 1 8 z" fill="#3fb950" />
+    </marker>
+  </defs>
+
+  <!-- Background Layer -->
+  <rect width="1080" height="620" fill="#0d1117"/>
+  <rect width="1080" height="620" fill="url(#grid)"/>
+
+  <!-- Top Editorial Header & Metadata Strip -->
+  <g transform="translate(48, 40)">
+    <text x="0" y="0" font-family="'Geist Mono', ui-monospace, monospace" font-size="11" font-weight="700" fill="#58a6ff" letter-spacing="2">SYSTEM TOPOLOGY // ARCHITECTURE</text>
+    <text x="0" y="24" font-size="22" font-weight="700" fill="#f0f6fc">DeskPilot Autonomous Orchestration Flow</text>
+    <text x="0" y="44" font-size="12" fill="#8b949e">Hybrid Sub-Second Boot Sequence &amp; On-Demand LangGraph Multi-Agent Architecture</text>
+    
+    <rect x="750" y="-12" width="234" height="26" rx="4" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <circle cx="764" cy="1" r="3.5" fill="#3fb950"/>
+    <text x="776" y="5" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" fill="#c9d1d9">SPEC VERSION 2.0 // TDD VERIFIED</text>
+
+    <line x1="0" y1="62" x2="984" y2="62" stroke="#21262d" stroke-width="1.5"/>
+  </g>
+
+  <!-- ========================================== -->
+  <!-- COLUMN 1: INGRESS & BOOT ENTRY             -->
+  <!-- ========================================== -->
+  <g transform="translate(48, 130)">
+    <!-- Container -->
+    <rect x="0" y="0" width="190" height="210" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <rect x="0" y="0" width="190" height="28" rx="6" fill="#1c2128"/>
+    <text x="14" y="18" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" font-weight="700" fill="#8b949e">01 // TRIGGER &amp; INGRESS</text>
+
+    <!-- Trigger 1: Windows Logon -->
+    <rect x="14" y="44" width="162" height="62" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="24" y="64" font-size="12" font-weight="600" fill="#f0f6fc">Windows Logon</text>
+    <text x="24" y="80" font-size="10" font-family="'Geist Mono', ui-monospace, monospace" fill="#8b949e">register_startup.ps1</text>
+    <text x="24" y="94" font-size="10" fill="#3fb950">Automated morning run</text>
+
+    <!-- Trigger 2: Manual CLI -->
+    <rect x="14" y="122" width="162" height="62" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="24" y="142" font-size="12" font-weight="600" fill="#f0f6fc">User Shell Command</text>
+    <text x="24" y="158" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" fill="#8b949e">uv run deskpilot</text>
+    <text x="24" y="172" font-size="10" fill="#58a6ff">Interactive or --startup</text>
+  </g>
+
+  <!-- Arrow: Ingress -> Orchestrator -->
+  <path d="M 238 235 L 278 235" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- COLUMN 2: DESKPILOT CORE ORCHESTRATOR      -->
+  <!-- ========================================== -->
+  <g transform="translate(280, 130)">
+    <rect x="0" y="0" width="180" height="210" rx="6" fill="#161b22" stroke="#388bfd" stroke-width="1.5"/>
+    <rect x="0" y="0" width="180" height="28" rx="6" fill="#1f293d"/>
+    <text x="14" y="18" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" font-weight="700" fill="#58a6ff">02 // ORCHESTRATOR CORE</text>
+
+    <text x="14" y="58" font-size="14" font-weight="700" fill="#f0f6fc">DeskPilot Engine</text>
+    <text x="14" y="74" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" fill="#8b949e">deskpilot/cli.py</text>
+
+    <!-- Core Specs list -->
+    <rect x="12" y="92" width="156" height="102" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="22" y="112" font-size="11" font-weight="600" fill="#c9d1d9">• Zero-import Startup</text>
+    <text x="22" y="126" font-size="10" fill="#8b949e">No heavy LLMs on boot</text>
+    <text x="22" y="146" font-size="11" font-weight="600" fill="#c9d1d9">• Async Concurrency</text>
+    <text x="22" y="160" font-size="10" fill="#8b949e">asyncio.gather loop</text>
+    <text x="22" y="180" font-size="10" fill="#3fb950">Sub-second execution</text>
+  </g>
+
+  <!-- Arrow: Orchestrator -> Phase 1 -->
+  <path d="M 460 235 L 498 235" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- COLUMN 3: PHASE 1 PARALLEL HYGIENE CHECKS  -->
+  <!-- ========================================== -->
+  <g transform="translate(500, 130)">
+    <rect x="0" y="0" width="230" height="210" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <rect x="0" y="0" width="230" height="28" rx="6" fill="#1c2128"/>
+    <text x="14" y="18" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" font-weight="700" fill="#3fb950">03 // PHASE 1 (PARALLEL &lt;1S)</text>
+
+    <!-- Task 1: Temp Cleaner -->
+    <rect x="12" y="38" width="206" height="48" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="22" y="56" font-size="11" font-weight="600" fill="#f0f6fc">%TEMP% Cleaner</text>
+    <text x="22" y="72" font-size="10" fill="#8b949e">Purges files older than 24 hrs</text>
+
+    <!-- Task 2: Winget Checker -->
+    <rect x="12" y="94" width="206" height="48" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="22" y="112" font-size="11" font-weight="600" fill="#f0f6fc">Winget Updates Check</text>
+    <text x="22" y="128" font-size="10" fill="#8b949e">Custom exclusion filters applied</text>
+
+    <!-- Task 3: Calendar -->
+    <rect x="12" y="150" width="206" height="48" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="22" y="168" font-size="11" font-weight="600" fill="#f0f6fc">Google Calendar Agenda</text>
+    <text x="22" y="184" font-size="10" fill="#8b949e">OAuth2 today's meetings &amp; Meet</text>
+  </g>
+
+  <!-- Arrow: Phase 1 -> Dashboard -->
+  <path d="M 730 235 L 768 235" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========================================== -->
+  <!-- COLUMN 4: 3-PANEL DASHBOARD & ACTION MENU  -->
+  <!-- ========================================== -->
+  <g transform="translate(770, 130)">
+    <rect x="0" y="0" width="262" height="210" rx="6" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+    <rect x="0" y="0" width="262" height="28" rx="6" fill="#262117"/>
+    <text x="14" y="18" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" font-weight="700" fill="#e3b341">04 // MORNING DASHBOARD &amp; MENU</text>
+
+    <!-- Dashboard overview -->
+    <rect x="12" y="38" width="238" height="66" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="22" y="56" font-size="12" font-weight="600" fill="#f0f6fc">Rich Terminal UI (3 Panels)</text>
+    <text x="22" y="72" font-size="10" fill="#8b949e">System Hygiene | Winget | Agenda</text>
+    <text x="22" y="88" font-size="10" fill="#58a6ff">Expands to 2x2 grid on Floorp audit</text>
+
+    <!-- Menu Router -->
+    <rect x="12" y="112" width="238" height="86" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="22" y="130" font-size="11" font-weight="600" fill="#e3b341">Action Menu [0-5]</text>
+    <text x="22" y="146" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" fill="#c9d1d9">[1] Triage  [2] Downloads  [3] Floorp</text>
+    <text x="22" y="162" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" fill="#c9d1d9">[4] Winget  [5] Read-Later [0] Exit</text>
+    <text x="22" y="180" font-size="9" fill="#8b949e">Lazy-loads LangGraph &amp; heavy SDKs</text>
+  </g>
+
+  <!-- Connect Dashboard Menu down to Phase 2 Agents -->
+  <path d="M 901 340 L 901 380 L 140 380 L 140 405" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow-blue)"/>
+  <text x="520" y="374" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" font-weight="600" fill="#58a6ff" text-anchor="middle">DYNAMIC DISPATCH: ON-DEMAND EXECUTION VIA USER SELECTION</text>
+
+  <!-- ======================================================== -->
+  <!-- ROW 2: PHASE 2 AUTONOMOUS AGENTS & INTEGRATION BOUNDARIES -->
+  <!-- ======================================================== -->
+  <g transform="translate(48, 410)">
+    <!-- Container -->
+    <rect x="0" y="0" width="984" height="175" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <rect x="0" y="0" width="984" height="28" rx="6" fill="#1c2128"/>
+    <text x="14" y="18" font-family="'Geist Mono', ui-monospace, monospace" font-size="10" font-weight="700" fill="#58a6ff">05 // PHASE 2: ON-DEMAND AUTONOMOUS AGENTS (LANGGRAPH WORKFLOWS)</text>
+
+    <!-- Agent 1: Screenshot Triage -->
+    <rect x="14" y="38" width="224" height="122" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="26" y="58" font-size="12" font-weight="700" fill="#f0f6fc">[1] Screenshot Triage</text>
+    <text x="26" y="74" font-size="10" font-family="'Geist Mono', ui-monospace, monospace" fill="#8b949e">LangGraph + ReAct Agent</text>
+    <line x1="26" y1="82" x2="226" y2="82" stroke="#21262d" stroke-width="1"/>
+    <text x="26" y="98" font-size="10" fill="#c9d1d9">• Gemini Vision Multimodal Triage</text>
+    <text x="26" y="114" font-size="10" fill="#c9d1d9">• Dynamic Notion Schema Introspect</text>
+    <text x="26" y="130" font-size="10" fill="#c9d1d9">• WorkNote, DDQ &amp; Brainstorm Sync</text>
+    <text x="26" y="146" font-size="10" fill="#3fb950">• Safe Deletion (Only Synced Files)</text>
+
+    <!-- Agent 2: Downloads Hygiene -->
+    <rect x="254" y="38" width="224" height="122" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="266" y="58" font-size="12" font-weight="700" fill="#f0f6fc">[2] Downloads Hygiene</text>
+    <text x="266" y="74" font-size="10" font-family="'Geist Mono', ui-monospace, monospace" fill="#8b949e">LangGraph State Machine</text>
+    <line x1="266" y1="82" x2="466" y2="82" stroke="#21262d" stroke-width="1"/>
+    <text x="266" y="98" font-size="10" fill="#c9d1d9">• Catalog &amp; Categorize Extensions</text>
+    <text x="266" y="114" font-size="10" fill="#c9d1d9">• Detect Stale Installers (&gt;30d)</text>
+    <text x="266" y="130" font-size="10" fill="#c9d1d9">• Assemble Action Plan Proposal</text>
+    <text x="266" y="146" font-size="10" fill="#e3b341">• Strict Human Approval Gating</text>
+
+    <!-- Agent 3 & 4: Floorp & Winget -->
+    <rect x="494" y="38" width="224" height="122" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="506" y="58" font-size="12" font-weight="700" fill="#f0f6fc">[3 &amp; 4] System Helpers</text>
+    <text x="506" y="74" font-size="10" font-family="'Geist Mono', ui-monospace, monospace" fill="#8b949e">On-Demand Local Tools</text>
+    <line x1="506" y1="82" x2="706" y2="82" stroke="#21262d" stroke-width="1"/>
+    <text x="506" y="98" font-size="10" fill="#c9d1d9">• Floorp places.sqlite Inspector</text>
+    <text x="506" y="114" font-size="10" fill="#8b949e">  (immutable=1&amp;mode=ro, zero lock)</text>
+    <text x="506" y="130" font-size="10" fill="#c9d1d9">• Noise &amp; Duplicate URL Analysis</text>
+    <text x="506" y="146" font-size="10" fill="#c9d1d9">• Winget Interactive Upgrade CLI</text>
+
+    <!-- Agent 5: Read-Later Digest -->
+    <rect x="734" y="38" width="234" height="122" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+    <text x="746" y="58" font-size="12" font-weight="700" fill="#f0f6fc">[5] Read-Later Digest</text>
+    <text x="746" y="74" font-size="10" font-family="'Geist Mono', ui-monospace, monospace" fill="#8b949e">Notion LangGraph Agent</text>
+    <line x1="746" y1="82" x2="956" y2="82" stroke="#21262d" stroke-width="1"/>
+    <text x="746" y="98" font-size="10" fill="#c9d1d9">• Query "To Be Read" Database</text>
+    <text x="746" y="114" font-size="10" fill="#c9d1d9">• Rank by Priority Tags &amp; Age</text>
+    <text x="746" y="130" font-size="10" fill="#c9d1d9">• Present Curated Morning Pick</text>
+    <text x="746" y="146" font-size="10" fill="#3fb950">• One-Click Status Update to 'Read'</text>
+  </g>
+</svg>

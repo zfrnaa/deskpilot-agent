@@ -12,82 +12,63 @@ DeskPilot utilizes a **hybrid execution model**:
 1. **Phase 1: Sub-Second Boot Sequence** &mdash; Runs fast, local, lightweight hygiene tasks concurrently using `asyncio.gather`. Never imports heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times.
 2. **Phase 2: On-Demand LangGraph Agents** &mdash; Dynamically loaded only when triggered by user selection. Powered by LangGraph, multimodal LLMs (Google Gemini), and external APIs (Notion, Google Calendar).
 
+<p align="center">
+  <img src="assets/architecture.svg" alt="DeskPilot System Architecture" width="100%" />
+</p>
+
+<details>
+<summary><b>View Text-Based Flowchart Representation</b></summary>
+
 ```mermaid
-flowchart TD
-    %% Entry & Triggers
-    Logon["🪟 Windows Logon / Shell Startup<br/><code>register_startup.ps1</code>"] --> CLI["🚀 DeskPilot Boot Orchestrator<br/><code>deskpilot/cli.py</code>"]
-    Manual["💻 User Terminal Invocation<br/><code>uv run deskpilot</code>"] --> CLI
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryBorderColor': '#1e293b', 'primaryTextColor': '#0f172a', 'lineColor': '#64748b', 'secondaryColor': '#f8fafc', 'tertiaryColor': '#f1f5f9' }}}%%
+flowchart LR
+    classDef boundary fill:#ffffff,stroke:#0f172a,stroke-width:1.5px,color:#0f172a,font-family:ui-monospace;
+    classDef core fill:#0f172a,stroke:#0f172a,stroke-width:1.5px,color:#ffffff,font-weight:bold;
+    classDef phase fill:#f8fafc,stroke:#cbd5e1,stroke-width:1px,color:#334155;
+    classDef service fill:#ffffff,stroke:#94a3b8,stroke-dasharray: 4 4,color:#475569;
 
-    %% Phase 1: Sub-Second Boot Sequence
-    subgraph Phase1 ["⚡ Phase 1: Sub-Second Boot Sequence (asyncio.gather)"]
-        direction TB
-        CLI --> P1Fork{{"asyncio.gather<br/>Concurrent Execution"}}
-        P1Fork -->|Task 1| TH["🧹 %TEMP% Cleaner<br/>Purge temp files older than 24h"]
-        P1Fork -->|Task 2| WU["📦 Winget Updates Check<br/>CLI query with exclusion filter"]
-        P1Fork -->|Task 3| GC["📅 Google Calendar Agenda<br/>OAuth2 + today's events & Meet"]
-        
-        TH --> AggState["📊 BootState Aggregate"]
-        WU --> AggState
-        GC --> AggState
+    subgraph INGRESS [" Ingress "]
+        Logon["Windows Logon<br/>Task Scheduler"]:::boundary
+        Terminal["User CLI Shell<br/>uv run deskpilot"]:::boundary
     end
 
-    %% Terminal Dashboard
-    AggState --> Dash["🖥️ 3-Panel Rich Terminal Dashboard<br/>Hygiene | Winget Updates | Calendar Agenda"]
+    CLI["DeskPilot Core<br/>Orchestrator"]:::core
 
-    %% Phase 2: Interactive Action Menu
-    Dash --> Menu{{"🧭 Interactive Action Menu<br/>Select Option [0-5]"}}
-
-    %% Option 1: Screenshot Triage Pipeline
-    subgraph Agent1 ["🖼️ Option 1: Screenshot Triage Agent (LangGraph + Gemini Vision)"]
+    subgraph PHASE1 [" Phase 1: Fast Boot (<1s) "]
         direction TB
-        S_Scan["🔍 scan_screenshots<br/>Locate PNG/JPG images"] --> S_Vision["🤖 vision_triage<br/>Gemini Multimodal Vision Analysis"]
-        S_Vision --> S_Cluster["🗂️ cluster_items<br/>Group into WorkNote, Due Diligence, etc."]
-        S_Cluster --> S_Review{"👤 human_review_node<br/>Interactive cluster approval"}
-        S_Review -->|Approved| S_Sync["📝 notion_sync / ReAct Agent<br/>Introspect schema & create/append pages"]
-        S_Review -->|Rejected| S_Keep["🔒 Retain in local storage"]
-        S_Sync --> S_Clean["🗑️ cleanup_synced<br/>Safe delete only confirmed synced files"]
+        P1["Parallel Boot<br/>asyncio.gather"]:::phase
+        P1 --> TempClean["%TEMP% Cleaner"]:::boundary
+        P1 --> WingetCheck["Winget Query"]:::boundary
+        P1 --> GCal["GCalendar Sync"]:::boundary
     end
 
-    %% Option 2: Downloads Hygiene Pipeline
-    subgraph Agent2 ["📥 Option 2: Downloads Hygiene Agent (LangGraph)"]
+    Dash["Rich Terminal UI<br/>Morning Dashboard"]:::boundary
+
+    subgraph PHASE2 [" Phase 2: LangGraph Autonomous Agents "]
         direction TB
-        D_Scan["📂 scan_downloads<br/>Catalog downloads directory"] --> D_Cat["🏷️ categorize_and_analyze<br/>Classify installers, archives, media"]
-        D_Cat --> D_Plan["📋 propose_plan<br/>Assemble actions (delete/archive/keep)"]
-        D_Plan --> D_Review{"👤 human_review_node<br/>Rich table review & confirmation"}
-        D_Review -->|Approved| D_Exec["⚡ execute_actions<br/>Safely purge stale installers & archive"]
-        D_Review -->|Dismissed| D_Noop["⏸️ No disk modifications"]
+        STA["Screenshot Triage<br/>Vision + Classifier"]:::phase
+        DHA["Downloads Hygiene<br/>Planner + Clean"]:::phase
+        FBA["Floorp Bookmarks<br/>places.sqlite (ro)"]:::phase
+        RLA["Read-Later Digest<br/>Daily Priority Pick"]:::phase
     end
 
-    %% Option 3: Floorp Bookmarks Auditor
-    subgraph Task3 ["🔖 Option 3: Floorp Bookmarks Auditor (On-Demand)"]
+    subgraph TARGETS [" External Boundaries "]
         direction TB
-        F_Open["📖 Open places.sqlite<br/><code>immutable=1&mode=ro</code> (no lock)"] --> F_Audit["🔎 Scan Bookmarks<br/>Detect duplicates & noisy UTM tracking params"]
-        F_Audit --> F_Panel["🗂️ Expand Dashboard to 2x2 Grid<br/>Render Rich bookmarks summary panel"]
+        EXT_GEMINI["Google Gemini API"]:::service
+        EXT_NOTION["Notion Workspace"]:::service
+        EXT_DISK["Local Filesystem"]:::service
     end
 
-    %% Option 4: Winget Upgrade
-    subgraph Task4 ["⬆️ Option 4: Winget Package Upgrade"]
-        direction TB
-        W_Filter["🛡️ Apply ignore_packages Filter<br/>Exclude pinned / blacklisted tools"] --> W_Run["💻 Interactive winget upgrade<br/>Spawn winget CLI in terminal"]
-    end
-
-    %% Option 5: Read-Later Digest Pipeline
-    subgraph Agent5 ["📰 Option 5: Notion Read-Later Digest (LangGraph)"]
-        direction TB
-        R_Fetch["📚 fetch_unread_items<br/>Query 'To Be Read' Notion database"] --> R_Rank["🎯 select_daily_recommendation<br/>Score priority tags & oldest unread"]
-        R_Rank --> R_Prompt{"👤 interactive_or_action_node<br/>Render digest pick & prompt mark read"}
-        R_Prompt -->|Mark Read| R_Update["✅ update_notion_status<br/>Update Status property to 'read'"]
-        R_Prompt -->|Skip| R_Done["🏁 Keep status unchanged"]
-    end
-
-    %% Routing
-    Menu -->|"[1]"| S_Scan
-    Menu -->|"[2]"| D_Scan
-    Menu -->|"[3]"| F_Open
-    Menu -->|"[4]"| W_Filter
-    Menu -->|"[5]"| R_Fetch
-    Menu -->|"[0]"| Exit["👋 Dismiss & Exit"]
+    Logon & Terminal --> CLI
+    CLI --> P1
+    TempClean & WingetCheck & GCal --> Dash
+    Dash -->|User Selection| PHASE2
+    STA --> EXT_GEMINI & EXT_NOTION & EXT_DISK
+    DHA --> EXT_DISK
+    RLA --> EXT_NOTION
 ```
+
+</details>
 
 ---
 
