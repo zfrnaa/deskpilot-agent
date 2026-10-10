@@ -215,12 +215,38 @@ def _snap_tag_to_available(tag: str, available_tags: list[str]) -> str:
     return tag_clean
 
 
+def format_preferences(learned_preferences: dict[str, Any] | list[dict[str, Any]] | None) -> str:
+    """Format stored user routing preferences into human-readable prompt lines."""
+    if not learned_preferences:
+        return ""
+    lines: list[str] = []
+    if isinstance(learned_preferences, dict):
+        for k, v in learned_preferences.items():
+            if isinstance(v, dict):
+                cls_name = v.get("classification", "")
+                tag_name = v.get("cluster_tag", k)
+                lines.append(f"- '{k}': classify as {cls_name} (cluster tag: '{tag_name}')")
+            else:
+                lines.append(f"- '{k}': {v}")
+    elif isinstance(learned_preferences, list):
+        for entry in learned_preferences:
+            if isinstance(entry, dict):
+                cls_name = entry.get("classification", "")
+                tag_name = entry.get("cluster_tag", "")
+                key_name = entry.get("key", tag_name)
+                lines.append(f"- '{key_name}': classify as {cls_name} (cluster tag: '{tag_name}')")
+            else:
+                lines.append(f"- {entry}")
+    return "\n".join(lines)
+
+
 @traceable(name="classify_screenshot")
 def classify_screenshot(
     item: ScreenshotItem,
     llm: Any = None,
     fallback_tag: str = "General",
     available_tags: list[str] | None = None,
+    learned_preferences: dict[str, Any] | list[dict[str, Any]] | None = None,
 ) -> ScreenshotItem:
     """Classify a single screenshot using the vision model or mock callable.
 
@@ -240,7 +266,17 @@ def classify_screenshot(
     # Direct callable support for custom functions or test mocks
     if callable(llm) and not hasattr(llm, "invoke"):
         try:
-            res = llm(item)
+            # Check if callable supports learned_preferences keyword argument
+            import inspect
+
+            sig = inspect.signature(llm)
+            if "learned_preferences" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                res = llm(item, learned_preferences=learned_preferences)
+            else:
+                res = llm(item)
+
             if isinstance(res, ScreenshotItem):
                 return res
             if isinstance(res, dict):
@@ -277,6 +313,18 @@ def classify_screenshot(
                 "- BRAINSTORM: Brainstorming sessions, whiteboards, mind maps, ideation notes, draft ideas, or product concepts.\n"
                 "- LOCAL_KEEP: Transient desktop snips, personal photos, accidental captures, video game frames, "
                 "or temporary scratch that should not be sent to Notion.\n\n"
+            )
+
+            if learned_preferences:
+                formatted_pref = format_preferences(learned_preferences)
+                if formatted_pref:
+                    prompt += (
+                        "Learned User Preferences from past sessions:\n"
+                        f"{formatted_pref}\n"
+                        "Prioritize these established user habits when tagging and classifying screenshots!\n\n"
+                    )
+
+            prompt += (
                 "Return a strict JSON object with this format:\n"
                 "{\n"
                 '  "classification": "WORK_NOTES" | "DUE_DILIGENCE" | "BRAINSTORM" | "LOCAL_KEEP",\n'
@@ -441,6 +489,7 @@ def triage_screenshots(
     items: list[ScreenshotItem],
     llm: Any = None,
     available_tags: list[str] | None = None,
+    learned_preferences: dict[str, Any] | list[dict[str, Any]] | None = None,
 ) -> tuple[list[ScreenshotItem], list[str]]:
     """Triage a list of screenshots and collect any processing errors."""
     updated: list[ScreenshotItem] = []
@@ -448,7 +497,12 @@ def triage_screenshots(
 
     for item in items:
         try:
-            classified = classify_screenshot(item, llm=llm, available_tags=available_tags)
+            classified = classify_screenshot(
+                item,
+                llm=llm,
+                available_tags=available_tags,
+                learned_preferences=learned_preferences,
+            )
             updated.append(classified)
         except Exception as e:
             item.classification = "LOCAL_KEEP"

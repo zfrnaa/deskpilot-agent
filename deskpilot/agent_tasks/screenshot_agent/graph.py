@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.base import BaseStore
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ from deskpilot.agent_tasks.screenshot_agent.vision import (
     triage_screenshots,
 )
 from deskpilot.config import ScreenshotDestinationsConfig, Settings
+from deskpilot.storage.store import get_store
 
 
 def scan_screenshots(state: ScreenshotAgentState) -> dict[str, Any]:
@@ -86,11 +88,53 @@ def scan_screenshots(state: ScreenshotAgentState) -> dict[str, Any]:
 def vision_triage(
     state: ScreenshotAgentState,
     llm: Any = None,
+    *,
+    store=None,
 ) -> dict[str, Any]:
     """Run multimodal classification on screenshot items."""
     items = state.get("items", [])
     available_tags = state.get("tag_options", [])
-    updated_items, triage_errors = triage_screenshots(items, llm=llm, available_tags=available_tags)
+
+    learned_preferences: dict[str, Any] = {}
+    if store is not None:
+        try:
+            # Search or list preferences in namespace ("screenshots", "routing_preferences")
+            pref_items = store.search(("screenshots", "routing_preferences"))
+            for p_item in pref_items:
+                learned_preferences[p_item.key] = p_item.value
+            if learned_preferences:
+                logger.info(
+                    "Recalled %d screenshot routing preferences from store: %s",
+                    len(learned_preferences),
+                    list(learned_preferences.keys()),
+                )
+        except Exception as e:
+            logger.debug("Failed to query preferences from store: %s", e)
+
+    triage_kwargs: dict[str, Any] = {
+        "items": items,
+        "llm": llm,
+        "available_tags": available_tags,
+    }
+    if learned_preferences:
+        # Check if the callable (or mock side_effect) accepts learned_preferences
+        import inspect
+
+        target_fn = getattr(triage_screenshots, "side_effect", None)
+        if not callable(target_fn):
+            target_fn = triage_screenshots
+        try:
+            sig = inspect.signature(target_fn)
+            supports_prefs = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ) or ("learned_preferences" in sig.parameters)
+        except Exception:
+            supports_prefs = True
+
+        if supports_prefs:
+            triage_kwargs["learned_preferences"] = learned_preferences
+
+    updated_items, triage_errors = triage_screenshots(**triage_kwargs)
     current_errors = list(state.get("errors", [])) + triage_errors
     return {"items": updated_items, "errors": current_errors}
 
@@ -178,6 +222,8 @@ def notion_sync(
     llm: Any = None,
     reasoning_llm: Any = None,
     fallback_reasoning_llm: Any = None,
+    *,
+    store=None,
 ) -> dict[str, Any]:
     """Synchronize approved screenshots to Notion destinations."""
     items = state.get("items", [])
@@ -188,6 +234,21 @@ def notion_sync(
     selected_llm = state.get("llm", llm)
     r_llm = state.get("reasoning_llm", reasoning_llm)
     fb_llm = state.get("fallback_reasoning_llm", fallback_reasoning_llm)
+
+    # Persist approved cluster tags and item routing preferences to store
+    if store is not None and approved:
+        try:
+            for item in items:
+                cluster_tag = item.cluster_tag or "General"
+                if cluster_tag in approved:
+                    store.put(
+                        ("screenshots", "routing_preferences"),
+                        key=cluster_tag,
+                        value={"classification": item.classification, "cluster_tag": cluster_tag},
+                    )
+        except Exception as e:
+            logger.debug("Failed to persist routing preferences to store: %s", e)
+
     synced_count, sync_errors = sync_approved_items(
         items=items,
         approved_cluster_keys=approved,
@@ -239,6 +300,8 @@ def build_screenshot_triage_graph(
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
     reasoning_llm: Any = None,
     fallback_reasoning_llm: Any = None,
+    checkpointer: Any = None,
+    store: Any = None,
 ) -> CompiledStateGraph:
     """Build and compile the LangGraph workflow for screenshot triage."""
     builder = StateGraph(ScreenshotAgentState)
@@ -246,8 +309,8 @@ def build_screenshot_triage_graph(
     def _scan(state: ScreenshotAgentState) -> dict[str, Any]:
         return scan_screenshots(state)
 
-    def _triage(state: ScreenshotAgentState) -> dict[str, Any]:
-        return vision_triage(state, llm=llm)
+    def _triage(state: ScreenshotAgentState, *, store=None) -> dict[str, Any]:
+        return vision_triage(state, llm=llm, store=store)
 
     def _cluster(state: ScreenshotAgentState) -> dict[str, Any]:
         return cluster_items(state)
@@ -257,7 +320,7 @@ def build_screenshot_triage_graph(
             state["auto_approve"] = auto_approve
         return human_review_node(state, review_func=review_func)
 
-    def _sync(state: ScreenshotAgentState) -> dict[str, Any]:
+    def _sync(state: ScreenshotAgentState, *, store=None) -> dict[str, Any]:
         p_id = state.get("parent_page_id", parent_page_id)
         db_id = state.get("database_id", database_id)
         dests = state.get("destinations", destinations)
@@ -270,6 +333,7 @@ def build_screenshot_triage_graph(
             llm=llm,
             reasoning_llm=reasoning_llm,
             fallback_reasoning_llm=fallback_reasoning_llm,
+            store=store,
         )
 
     def _clean(state: ScreenshotAgentState) -> dict[str, Any]:
@@ -291,7 +355,11 @@ def build_screenshot_triage_graph(
     builder.add_edge("notion_sync", "cleanup_synced")
     builder.add_edge("cleanup_synced", END)
 
-    return builder.compile(name="ScreenshotTriageAgent")
+    return builder.compile(
+        checkpointer=checkpointer,
+        store=store,
+        name="ScreenshotTriageAgent",
+    )
 
 
 async def run_screenshot_triage(
@@ -304,8 +372,17 @@ async def run_screenshot_triage(
     console_print: Any = None,
     reasoning_llm: Any = None,
     fallback_reasoning_llm: Any = None,
+    checkpointer: Any = None,
+    store: Any = None,
 ) -> ScreenshotAgentState:
     """High-level entrypoint to execute screenshot triage agent using configured settings."""
+    if store is None:
+        storage_path = getattr(settings, "get_resolved_storage_path", None)
+        if callable(storage_path):
+            store = get_store(storage_path())
+        else:
+            store = get_store()
+
     if llm is None:
         llm = get_default_vision_llm(
             gemini_api_key=settings.gemini_api_key,
@@ -330,6 +407,8 @@ async def run_screenshot_triage(
         review_func=review_func,
         reasoning_llm=reasoning_llm,
         fallback_reasoning_llm=fallback_reasoning_llm,
+        checkpointer=checkpointer,
+        store=store,
     )
 
     tag_options: list[str] | None = None
