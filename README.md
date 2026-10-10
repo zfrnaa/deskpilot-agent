@@ -8,9 +8,9 @@ DeskPilot is an intelligent personal productivity orchestrator designed to run u
 
 ## Architecture Overview
 
-DeskPilot utilizes a **hybrid execution model**:
-1. **Phase 1: Sub-Second Boot Sequence** &mdash; Runs fast, local, lightweight hygiene tasks concurrently using `asyncio.gather`. Never imports heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times.
-2. **Phase 2: On-Demand LangGraph Agents** &mdash; Dynamically loaded only when triggered by user selection. Powered by LangGraph, multimodal LLMs (Google Gemini), and external APIs (Notion, Google Calendar).
+DeskPilot utilizes a **dual-layer architecture**:
+1. **Layer 1: Sub-Second Boot & Fast Hygiene Layer** &mdash; Runs fast, local, lightweight hygiene tasks concurrently using `asyncio.gather`. Never imports heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times (<1s).
+2. **Layer 2: Autonomous Agent & State Persistence Layer** &mdash; Dynamically loaded only on demand when triggered by user selection. Powered by LangGraph state machines, multi-modal LLMs (Google Gemini), ReAct consolidation agents with adversarial schema interceptors, and native checkpointers (`MemorySaver` / checkpointing interfaces) enabling **Human-in-the-Loop (HITL) pause breakpoints, state inspection, and time-travel resumption**.
 
 <p align="center">
   <img src="assets/architecture.svg" alt="DeskPilot System Architecture" width="100%" />
@@ -28,13 +28,13 @@ flowchart LR
     classDef service fill:#ffffff,stroke:#94a3b8,stroke-dasharray: 4 4,color:#475569;
 
     subgraph INGRESS [" Ingress "]
-        Logon["Windows Logon<br/>Task Scheduler"]:::boundary
+        Logon["Windows Logon<br/>Task Scheduler / Toast"]:::boundary
         Terminal["User CLI Shell<br/>uv run deskpilot"]:::boundary
     end
 
     CLI["DeskPilot Core<br/>Orchestrator"]:::core
 
-    subgraph PHASE1 [" Phase 1: Fast Boot (<1s) "]
+    subgraph LAYER1 [" Layer 1: Fast Boot (<1s) "]
         direction TB
         P1["Parallel Boot<br/>asyncio.gather"]:::phase
         P1 --> TempClean["%TEMP% Cleaner"]:::boundary
@@ -44,12 +44,13 @@ flowchart LR
 
     Dash["Rich Terminal UI<br/>Morning Dashboard"]:::boundary
 
-    subgraph PHASE2 [" Phase 2: LangGraph Autonomous Agents "]
+    subgraph LAYER2 [" Layer 2: LangGraph Agent & State Persistence "]
         direction TB
-        STA["Screenshot Triage<br/>Vision + Classifier"]:::phase
-        DHA["Downloads Hygiene<br/>Planner + Clean"]:::phase
+        STA["Screenshot Triage<br/>Vision + ReAct Consolidation"]:::phase
+        DHA["Downloads Hygiene<br/>HITL Checkpointer + Time-Travel"]:::phase
         FBA["Floorp Bookmarks<br/>places.sqlite (ro)"]:::phase
         RLA["Read-Later Digest<br/>Daily Priority Pick"]:::phase
+        EVAL["LangSmith Evals<br/>Benchmark Suite"]:::phase
     end
 
     subgraph TARGETS [" External Boundaries "]
@@ -57,15 +58,17 @@ flowchart LR
         EXT_GEMINI["Google Gemini API"]:::service
         EXT_NOTION["Notion Workspace"]:::service
         EXT_DISK["Local Filesystem"]:::service
+        EXT_SMITH["LangSmith Tracing"]:::service
     end
 
     Logon & Terminal --> CLI
     CLI --> P1
     TempClean & WingetCheck & GCal --> Dash
-    Dash -->|User Selection| PHASE2
+    Dash -->|User Selection| LAYER2
     STA --> EXT_GEMINI & EXT_NOTION & EXT_DISK
     DHA --> EXT_DISK
     RLA --> EXT_NOTION
+    EVAL --> EXT_SMITH
 ```
 
 </details>
@@ -74,28 +77,31 @@ flowchart LR
 
 ## Core Features
 
-### Fast Boot Sequence (Phase 1)
+### Fast Boot Sequence (Layer 1)
 - **Windows `%TEMP%` Cleaner**: Recursively purges temporary files older than 24 hours while safely tolerating locked Windows process handles.
 - **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom package exclusions (e.g. ignoring `AdvancedSystemCare` and `RevoUninstallerPro`).
-- **Google Calendar Agenda**: Fetches your daily schedule, displaying all-day events, meeting times, and Google Meet locations.
+- **Google Calendar Agenda**: Fetches your daily schedule, displaying all-day events, meeting times, Google Meet locations, and token expiry warnings.
+- **Native Windows Toast Notifications**: Emits lightweight Windows toast notifications on boot with action buttons and custom `deskpilot://` protocol handler registration for instant one-click terminal activation.
 
-### Intelligent On-Demand Agents & Tools (Phase 2)
-- **Screenshot Triage Agent (Option 1)**: Scans your Screenshots folder, analyzes images using Google Gemini Vision, categorizes them into smart clusters, and dynamically routes them to designated Notion targets (WorkNote database with dynamic schema introspection, Due Diligence Questionnaire page, Brainstorm Session page, or Local Keep) with strict safety guarantees (only confirmed synced items are cleaned locally).
-- **Downloads Hygiene Agent (Option 2)**: Classifies downloads into installers, archives, code, documents, media, and images. Automatically proposes deleting stale installers (>30 days old) and archiving unorganized files with user confirmation.
+### Intelligent Autonomous Agents & State Layer (Layer 2)
+- **Screenshot Triage Agent (Option 1)**: Scans your Screenshots folder, analyzes images using Google Gemini Vision, categorizes them into smart clusters, and dynamically routes them to designated Notion targets (WorkNote database with dynamic schema introspection, Due Diligence Questionnaire page, Brainstorm Session page, or Local Keep) with strict safety guarantees (only confirmed synced items are cleaned locally). Powered by a **ReAct consolidation agent** with Pydantic input schemas and adversarial self-correction loops.
+- **Downloads Hygiene Agent & HITL Breakpoints (Option 2)**: Classifies downloads into installers, archives, code, documents, media, and images. Automatically proposes deleting stale installers (>30 days old) and archiving unorganized files. Supports **LangGraph checkpointer persistence (`MemorySaver`) with `interrupt_before=["execute_actions"]`, state snapshot inspection (`get_hygiene_state`), and time-travel resumption (`resume_downloads_hygiene`)**.
 - **On-Demand Floorp Bookmarks Auditor (Option 3)**: Decoupled from the boot sequence for sub-second startup; reads Floorp's `places.sqlite` in read-only immutable mode (`?immutable=1&mode=ro`) on demand, detecting noisy tracking parameters (UTMs, referral tags) and duplicate bookmark groups without browser locking.
 - **Interactive Winget Package Upgrade (Option 4)**: Interactive package upgrade CLI helper that automatically respects your configured exclusions (`ignore_packages`).
 - **Notion Read-Later Digest (Option 5)**: Curates daily unread reading recommendations from your Notion reading list ("The Read Later List"), prioritizing critical tags and oldest items with one-click status updates.
+- **LangSmith Agent Evaluations Suite (Option 6)**: Built-in deterministic benchmark and evaluation harness testing agent safety, categorization accuracy, and human-in-the-loop decisions in a safe isolated temporary directory sandbox without touching real user files.
 
 ---
 
 ## Terminal Dashboard Preview
 
-DeskPilot launches with a clean **3-panel morning boot dashboard** (System Hygiene, Package Updates, and Today's Agenda):
+DeskPilot launches with a clean **3-panel morning boot dashboard** (System Hygiene, Package Updates, and Today's Agenda) with live LangSmith tracing diagnostics and an expanded 7-option menu:
 
 ```text
 ╭───────────────────────────── DeskPilot Morning Command Center ─────────────────────────────╮
 │                                Wednesday, September 09, 2026 - 09:00 AM                     │
 ╰────────────────────────────────────────────────────────────────────────────────────────────╯
+📡 LangSmith Tracing: Active (Project: DeskPilot) https://smith.langchain.com/projects/p/DeskPilot
 ╭── System Hygiene (%TEMP%) ──╮ ╭── Package Updates (winget) ─╮
 │ Bytes Freed: 15.0 MB        │ │ 2 update(s) available:      │
 │ Files Removed: 42           │ │ • Git (2.43.0 -> 2.44.0)    │
@@ -113,9 +119,10 @@ DeskPilot launches with a clean **3-panel morning boot dashboard** (System Hygie
 │ [3]  Clean Floorp Bookmarks (Launch floorp bookmark preview)                               │
 │ [4]  Upgrade Winget Packages (Execute interactive winget upgrade)                          │
 │ [5]  Notion Read-Later Digest (Preview pick & mark read)                                   │
+│ [6]  Run Agent Evaluations (LangSmith Benchmark)                                           │
 │ [0]  Dismiss & Exit                                                                        │
 ╰────────────────────────────────────────────────────────────────────────────────────────────╯
-Select an option [0-5]: 
+> Select an option [0-6]: 
 ```
 
 > **On-Demand Floorp View**: When option `[3]` is selected, Floorp bookmarks audit executes on-demand without slowing down your initial boot. When bookmarks data is present, the dashboard seamlessly expands to a 2x2 grid displaying the Floorp Bookmarks panel alongside System Hygiene, Winget, and Calendar.
@@ -157,11 +164,20 @@ Edit `.env` and `config.yaml` to configure your API tokens and directories (see 
 
 ### 4. Run DeskPilot
 ```powershell
-# Interactive Command Center
+# Interactive Command Center (Action Menu [0-6])
 uv run deskpilot
 
-# Non-interactive automated boot run (executes Phase 1 hygiene and exits)
+# Non-interactive automated boot run (executes Layer 1 hygiene and exits)
 uv run deskpilot --startup
+
+# Run LangSmith connectivity diagnostic
+uv run deskpilot --check-tracing
+
+# Run agent benchmark evaluations (local sandbox)
+uv run deskpilot --eval --local-only
+
+# Run agent benchmark evaluations and upload results to LangSmith
+uv run deskpilot --eval
 ```
 
 ---
@@ -330,11 +346,12 @@ Environment variables override settings loaded from `config.yaml`:
 
 ## Safety & Privacy Guarantees
 
+- **Human-in-the-Loop (HITL) Checkpointer Breakpoints**: File operations are gated behind explicit LangGraph interruption boundaries (`interrupt_before=["execute_actions"]`). State snapshots can be inspected, audited, and adjusted before resuming (`resume_downloads_hygiene`), guaranteeing zero disk modifications without authorization.
+- **Adversarial Schema Validation & Self-Correction**: Notion tool execution is guarded by strict Pydantic models. Malformed arguments or missing UUIDs trigger structured feedback for the agent to self-correct before any network mutation occurs.
 - **Multi-Destination Screenshot Routing & Zero Unsynced Deletion**: The Screenshot Triage Agent **only** removes local screenshots that have been verified as successfully created and confirmed in their designated Notion destination (`is_synced == True`). Images classified as `LOCAL_KEEP` or unapproved clusters are strictly preserved locally and never deleted.
 - **Read-Only SQLite Locking**: The Floorp auditor connects to `places.sqlite` using `immutable=1&mode=ro` on demand. It never locks the database, allowing you to use your browser freely during audits.
 - **Winget Exclusion Protection**: Pinned or blacklisted software packages (`AdvancedSystemCare`, `RevoUninstallerPro`) are automatically filtered out from upgrade lists to prevent unwanted bulk modifications.
-- **No Silent Bulk File Destruction**: The Downloads Hygiene Agent analyzes and suggests actions, but **never** deletes or moves files without explicit user approval.
-- **Local-First Fast Boot**: All Phase 1 boot checks execute strictly locally on your machine without making heavy network calls or loading LLM libraries.
+- **Local-First Fast Boot**: All Layer 1 boot checks execute strictly locally on your machine without making heavy network calls or loading LLM libraries.
 
 ---
 
@@ -346,7 +363,14 @@ DeskPilot is built with strict Test-Driven Development (TDD) principles.
 # Run the complete test suite
 uv run pytest -v
 
-# Run specific test modules
+# Run agent evaluations and HITL breakpoint tests
+uv run pytest tests/test_downloads_hitl.py -v
+uv run pytest tests/test_react_guardrails.py -v
+uv run pytest tests/test_eval_runner.py -v
+uv run pytest tests/test_evaluators.py -v
+uv run pytest tests/test_tracing.py -v
+
+# Run core boot and agent modules
 uv run pytest tests/test_cli.py -v
 uv run pytest tests/test_package_checker.py -v
 uv run pytest tests/test_screenshot_agent.py -v
