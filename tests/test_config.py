@@ -10,6 +10,7 @@ from deskpilot.config import (
     ScreenshotsConfig,
     DownloadsConfig,
     OllamaConfig,
+    StorageConfig,
     WingetConfig,
     load_settings,
 )
@@ -63,6 +64,19 @@ def test_default_config_models():
     assert ollama_cfg.model == "minicpm-v"
     assert ollama_cfg.reasoning_model == "qwen2.5:3b"
     assert ollama_cfg.url == "http://localhost:11434"
+
+    storage_cfg = StorageConfig()
+    assert storage_cfg.enabled is True
+    assert storage_cfg.db_path == Path("~/.deskpilot/storage.db")
+    assert storage_cfg.checkpoint_retention_days == 14
+    resolved = storage_cfg.get_resolved_db_path()
+    assert isinstance(resolved, Path)
+    assert resolved.is_absolute()
+    assert resolved.parent.exists()
+
+    settings = Settings()
+    assert isinstance(settings.storage, StorageConfig)
+    assert settings.get_resolved_storage_path() == resolved
 
 
 def test_winget_config_custom_ignore_packages():

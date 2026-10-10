@@ -128,6 +128,19 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     else:
         state.calendar_agenda = cal_res
 
+    # Storage Checkpoint Pruning (Morning Boot Hygiene)
+    if getattr(settings, "storage", None) and settings.storage.enabled:
+        try:
+            from deskpilot.storage.maintenance import prune_stale_checkpoints
+
+            await asyncio.to_thread(
+                prune_stale_checkpoints,
+                db_path=settings.get_resolved_storage_path(),
+                max_age_days=settings.storage.checkpoint_retention_days,
+            )
+        except Exception as exc:
+            state.add_error(f"Storage checkpoint pruning failed: {exc}")
+
     return state
 
 
@@ -403,8 +416,56 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run evaluations locally without syncing to LangSmith",
     )
+    parser.add_argument(
+        "--storage-status",
+        action="store_true",
+        help="Display SQLite storage and cross-thread memory statistics",
+    )
     parsed, _ = parser.parse_known_args(args)
     return parsed
+
+
+def show_storage_status(settings: Settings, console: Console | None = None) -> None:
+    """Display SQLite storage and cross-thread memory diagnostics."""
+    c = ui_theme.get_console(console)
+    from deskpilot.storage.maintenance import get_storage_stats
+
+    db_path = settings.get_resolved_storage_path()
+    stats = get_storage_stats(db_path)
+
+    table = Table(show_header=True, header_style="bold magenta", box=None)
+    table.add_column("Property", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Database Path", str(stats["db_path"]))
+    table.add_row("File Size", stats["file_size_formatted"])
+    table.add_row(
+        "Checkpoints",
+        f"{stats['checkpoint_count']} active checkpoints",
+    )
+    table.add_row(
+        "Total Long-Term Memories",
+        f"{stats['memories_count']} items across {len(stats['namespaces'])} namespace(s)",
+    )
+    table.add_row(
+        "Retention Policy",
+        f"Auto-pruning stale checkpoints older than {settings.storage.checkpoint_retention_days} days",
+    )
+
+    if stats["namespaces"]:
+        table.add_section()
+        for ns, count in stats["namespaces"].items():
+            unit = "rule" if count == 1 else "rules"
+            table.add_row(f"  • {ns}", f"{count} {unit}")
+
+    panel = Panel(
+        table,
+        title="[bold green]DeskPilot SQLite Storage & Memory Status[/bold green]",
+        subtitle="[dim]Dual-Layer Persistence Diagnostics[/dim]",
+        border_style="green",
+        expand=False,
+    )
+    c.print(panel)
 
 
 def check_tracing_health(settings: Settings, console: Console | None = None) -> bool:
@@ -449,11 +510,23 @@ def check_tracing_health(settings: Settings, console: Console | None = None) -> 
             else:
                 raise read_err
 
+        storage_line = ""
+        if getattr(settings, "storage", None) and settings.storage.enabled:
+            try:
+                from deskpilot.storage.maintenance import get_storage_stats
+
+                stats = get_storage_stats(settings.get_resolved_storage_path())
+                db_disp = str(settings.storage.db_path)
+                storage_line = f"\n[bold]Storage:[/bold] {db_disp} (healthy, {stats['memories_count']} memories, {stats['checkpoint_count']} checkpoints)"
+            except Exception:
+                storage_line = f"\n[bold]Storage:[/bold] {settings.storage.db_path} (unavailable)"
+
         c.print(
             Panel(
                 f"[bold]Status:[/bold] [green]Connected[/green]\n"
                 f"[bold]Project:[/bold] {project}\n"
-                f"[bold]Dashboard URL:[/bold] [link={url}]{url}[/link]",
+                f"[bold]Dashboard URL:[/bold] [link={url}]{url}[/link]"
+                f"{storage_line}",
                 title="[bold green]LangSmith Tracing Health[/bold green]",
                 border_style="green",
             )
@@ -756,6 +829,7 @@ async def main_async(
     run_eval: bool = False,
     eval_target: str = "downloads",
     local_only: bool = False,
+    storage_status: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -765,6 +839,10 @@ async def main_async(
         except Exception as e:
             c.print(f"[red]Error loading configuration: {e}[/red]")
             return 1
+
+    if storage_status:
+        show_storage_status(settings, console=c)
+        return 0
 
     if check_tracing:
         healthy = check_tracing_health(settings, console=c)
@@ -875,7 +953,9 @@ def main(args: list[str] | None = None) -> None:
     _configure_stdio()
     parsed = parse_args(args if args is not None else sys.argv[1:])
     try:
-        if parsed.check_tracing:
+        if parsed.storage_status:
+            sys.exit(asyncio.run(main_async(storage_status=True)))
+        elif parsed.check_tracing:
             sys.exit(asyncio.run(main_async(check_tracing=True)))
         elif parsed.eval:
             sys.exit(

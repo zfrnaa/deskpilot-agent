@@ -129,6 +129,20 @@ class OllamaConfig(BaseModel):
     url: str = "http://localhost:11434"
 
 
+class StorageConfig(BaseModel):
+    """Configuration for SQLite state persistence and long-term memory store."""
+
+    enabled: bool = True
+    db_path: Path = Path("~/.deskpilot/storage.db")
+    checkpoint_retention_days: int = 14
+
+    def get_resolved_db_path(self) -> Path:
+        """Return the resolved path to the SQLite storage file, creating parents if needed."""
+        p = self.db_path.expanduser().resolve()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+
 
 class MappedSettingsSource(PydanticBaseSettingsSource):
     """Wraps a settings source to map flat notion_* variables to nested notion dictionary."""
@@ -193,6 +207,7 @@ class Settings(BaseSettings):
     downloads: DownloadsConfig = Field(default_factory=DownloadsConfig)
     winget: WingetConfig = Field(default_factory=WingetConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
 
     # Top-level API keys and telemetry settings
     gemini_api_key: str = ""
@@ -356,6 +371,10 @@ class Settings(BaseSettings):
         """Return the LangSmith project dashboard URL."""
         project = self.langsmith_project or self.langchain_project or "DeskPilot"
         return f"https://smith.langchain.com/projects/p/{project}"
+
+    def get_resolved_storage_path(self) -> Path:
+        """Return the resolved path to the SQLite storage database."""
+        return self.storage.get_resolved_db_path()
 
     @classmethod
     def load(

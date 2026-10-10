@@ -23,9 +23,11 @@ from deskpilot.cli import (
     main,
     main_async,
     normalize_menu_choice,
+    parse_args,
     prompt_action_menu,
     render_dashboard,
     run_phase1_boot_sequence,
+    show_storage_status,
 )
 from deskpilot.config import Settings
 from deskpilot.state import BootState
@@ -861,5 +863,132 @@ def test_main_entrypoint_parses_eval_arguments():
             local_only=True,
         )
         mock_exit.assert_called_once_with(0)
+
+
+def test_parse_args_storage_status():
+    """Verify that parse_args parses --storage-status flag correctly."""
+    args = parse_args(["--storage-status"])
+    assert args.storage_status is True
+
+    args_default = parse_args([])
+    assert args_default.storage_status is False
+
+
+@pytest.mark.asyncio
+async def test_main_async_storage_status_mode():
+    """Verify main_async(storage_status=True) calls show_storage_status and returns 0."""
+    settings = Settings()
+    console = Console(record=True, width=120)
+
+    with patch("deskpilot.cli.show_storage_status") as mock_show:
+        exit_code = await main_async(
+            console=console,
+            settings=settings,
+            storage_status=True,
+        )
+        assert exit_code == 0
+        mock_show.assert_called_once_with(settings, console=console)
+
+
+def test_main_entrypoint_parses_storage_status_argument():
+    """Verify that main parses --storage-status and passes it to main_async."""
+    with (
+        patch("deskpilot.cli.main_async", new_callable=AsyncMock) as mock_main_async,
+        patch("deskpilot.cli.sys.exit") as mock_exit,
+    ):
+        mock_main_async.return_value = 0
+        main(["--storage-status"])
+        mock_main_async.assert_awaited_once_with(storage_status=True)
+        mock_exit.assert_called_once_with(0)
+
+
+def test_show_storage_status_formatting_empty_and_populated(tmp_path: Path):
+    """Test show_storage_status formatting with both non-existent/empty DB and populated DB."""
+    console = Console(record=True, width=120)
+
+    # 1. Test empty/non-existent database
+    empty_db = tmp_path / "empty_storage.db"
+    settings = Settings()
+    settings.storage.db_path = empty_db
+
+    show_storage_status(settings, console=console)
+    output = console.export_text()
+    assert "DeskPilot SQLite Storage & Memory Status" in output
+    assert "Auto-pruning stale checkpoints older than 14 days" in output
+    assert "0 active checkpoints" in output
+    assert "0 items across 0 namespace(s)" in output
+
+    # 2. Test populated database with SQLiteStore
+    from deskpilot.storage.store import SQLiteStore
+    from deskpilot.storage.checkpointer import get_sqlite_checkpointer
+
+    populated_db = tmp_path / "populated_storage.db"
+    settings.storage.db_path = populated_db
+
+    store = SQLiteStore(populated_db)
+    store.put(("screenshots", "routing_preferences"), "item_1", {"dest": "work_notes"})
+    store.put(("screenshots", "routing_preferences"), "item_2", {"dest": "brainstorm"})
+
+    cp = get_sqlite_checkpointer(populated_db)
+    assert cp is not None
+
+    console_populated = Console(record=True, width=120)
+    show_storage_status(settings, console=console_populated)
+    pop_output = console_populated.export_text()
+    assert "DeskPilot SQLite Storage & Memory Status" in output
+    assert "screenshots/routing_preferences" in pop_output
+    assert "2 rules" in pop_output
+
+
+@pytest.mark.asyncio
+async def test_run_phase1_boot_sequence_prunes_checkpoints(tmp_path: Path):
+    """Verify run_phase1_boot_sequence invokes prune_stale_checkpoints without breaking boot."""
+    settings = Settings()
+    settings.storage.enabled = True
+    test_db = tmp_path / "test_storage.db"
+    settings.storage.db_path = test_db
+
+    mock_temp = TempCleanResult(bytes_freed=1024, files_removed=3, dirs_removed=1)
+    mock_winget = WingetUpdateResult(total_count=1)
+    mock_cal = CalendarAgendaResult(total_count=0, is_configured=True)
+
+    with (
+        patch("deskpilot.cli.clean_temp_directory", new_callable=AsyncMock) as p_temp,
+        patch("deskpilot.cli.check_winget_updates", new_callable=AsyncMock) as p_winget,
+        patch("deskpilot.cli.fetch_today_agenda", new_callable=AsyncMock) as p_cal,
+        patch("deskpilot.storage.maintenance.prune_stale_checkpoints") as p_prune,
+    ):
+        p_temp.return_value = mock_temp
+        p_winget.return_value = mock_winget
+        p_cal.return_value = mock_cal
+        p_prune.return_value = 5
+
+        state = await run_phase1_boot_sequence(settings)
+
+        assert not state.has_errors()
+        p_prune.assert_called_once_with(
+            db_path=settings.get_resolved_storage_path(),
+            max_age_days=14,
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_phase1_boot_sequence_prune_failure_does_not_break_boot(tmp_path: Path):
+    """Verify run_phase1_boot_sequence catches pruning errors gracefully."""
+    settings = Settings()
+    settings.storage.enabled = True
+    test_db = tmp_path / "test_storage.db"
+    settings.storage.db_path = test_db
+
+    with (
+        patch("deskpilot.cli.clean_temp_directory", new_callable=AsyncMock),
+        patch("deskpilot.cli.check_winget_updates", new_callable=AsyncMock),
+        patch("deskpilot.cli.fetch_today_agenda", new_callable=AsyncMock),
+        patch("deskpilot.storage.maintenance.prune_stale_checkpoints", side_effect=RuntimeError("Disk I/O error")),
+    ):
+        state = await run_phase1_boot_sequence(settings)
+        assert state.has_errors()
+        assert any("Storage checkpoint pruning failed: Disk I/O error" in e for e in state.errors)
+
 
 

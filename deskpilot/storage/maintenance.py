@@ -8,8 +8,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from langgraph.checkpoint.sqlite import SqliteSaver
-
 
 def _format_size(size_bytes: int) -> str:
     """Format bytes into human-readable string (KB, MB, GB)."""
@@ -49,6 +47,8 @@ def prune_stale_checkpoints(db_path: Path, max_age_days: int = 14) -> int:
             return 0
 
         # Create dummy saver to deserialize checkpoints
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
         saver = SqliteSaver(conn)
 
         cur.execute(
