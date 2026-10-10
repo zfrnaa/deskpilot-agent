@@ -30,17 +30,30 @@ class SearchNotionInput(BaseModel):
 class AppendToPageInput(BaseModel):
     """Input schema for append_to_page tool."""
 
-    page_id: str = Field(description="Target Notion page ID (32-hex or UUID) to append content to")
-    section_title: str = Field(description="Heading title for the newly appended section")
+    page_id: str = Field(
+        description="Target Notion page ID (32-hex or UUID) to append content to, obtained from search_notion",
+    )
+    section_title: str = Field(
+        default="Screenshot Note",
+        description="Heading title for the newly appended section",
+    )
     rationale: str = Field(default="", description="Explanation or reasoning for appending to this page")
     file_upload_id: str = Field(default="", description="Notion file upload ID for the screenshot image")
 
-    @field_validator("page_id")
+    @field_validator("page_id", mode="before")
     @classmethod
-    def validate_page_id(cls, v: str) -> str:
-        s = v.strip()
-        if not s or not is_valid_uuid(s):
-            raise ValueError(f"Invalid page_id: '{v}'. Must be a valid 32-hex Notion UUID.")
+    def validate_page_id(cls, v: Any) -> str:
+        if v is None:
+            raise ValueError(
+                "page_id cannot be None. You must provide a valid 32-hex UUID returned by search_notion."
+            )
+        s = str(v).strip()
+        # Reject placeholder strings often hallucinated by small models
+        if not s or s in {"existing_page_id", "page_id", "placeholder", "none", "null"} or not is_valid_uuid(s):
+            raise ValueError(
+                f"Invalid page_id: '{v}'. Must be an actual Notion page UUID (e.g. from search_notion), "
+                "NOT a placeholder string like 'existing_page_id'."
+            )
         return s
 
     @field_validator("section_title")
@@ -55,7 +68,10 @@ class AppendToPageInput(BaseModel):
 class CreateDatabasePageInput(BaseModel):
     """Input schema for create_database_page tool."""
 
-    title: str = Field(description="Title of the new Notion database page")
+    title: str = Field(
+        default="Screenshot Note",
+        description="Title of the new Notion database page (required)",
+    )
     subject: str = Field(default="General", description="Subject or category tag for the page")
     rationale: str = Field(default="", description="Reasoning or notes to include on the page")
     file_upload_id: str = Field(default="", description="Notion file upload ID for the screenshot image")
@@ -67,6 +83,9 @@ class CreateDatabasePageInput(BaseModel):
         if not s:
             raise ValueError("title must not be empty.")
         return s
+
+
+
 
 
 
@@ -389,8 +408,9 @@ def run_react_consolidation_agent(
         "2. OR create a new database page (via create_database_page) if no existing page is a good topical match.\n\n"
         "Guidelines:\n"
         "- First, use search_notion to find any existing pages related to the screenshot title or subject tag.\n"
-        "- If a closely related page is found (e.g. same ongoing project, weekly notes, or topic), append to it.\n"
-        "- If no matching page is found, call create_database_page.\n"
+        "- If a closely related page is found (e.g. same ongoing project, weekly notes, or topic), call append_to_page with the EXACT page_id UUID returned by search_notion.\n"
+        "- CRITICAL: Never invent placeholder strings like 'existing_page_id' or null for page_id. Only use valid UUIDs returned from search_notion.\n"
+        "- If no matching page is found, call create_database_page with 'title' (use the screenshot title or a concise descriptive title).\n"
         f"- The file_upload_id for this screenshot is '{file_upload_id}'. Pass it to the tool call."
     )
 
@@ -435,7 +455,7 @@ def run_react_consolidation_agent(
 
             for tool_call in ai_msg.tool_calls:
                 tool_name = tool_call.get("name")
-                tool_args = tool_call.get("args") or {}
+                tool_args = dict(tool_call.get("args") or {})
                 tool_id = tool_call.get("id") or "call_id"
 
                 if tool_name not in tools_map:
@@ -446,6 +466,20 @@ def run_react_consolidation_agent(
                         )
                     )
                     continue
+
+                # Auto-fill defaults from current item if omitted by the model
+                if tool_name == "create_database_page":
+                    if not tool_args.get("title") and item.title:
+                        tool_args["title"] = item.title
+                    if not tool_args.get("subject") and item.cluster_tag:
+                        tool_args["subject"] = item.cluster_tag
+                    if not tool_args.get("file_upload_id") and file_upload_id:
+                        tool_args["file_upload_id"] = file_upload_id
+                elif tool_name == "append_to_page":
+                    if not tool_args.get("section_title") and item.title:
+                        tool_args["section_title"] = item.title
+                    if not tool_args.get("file_upload_id") and file_upload_id:
+                        tool_args["file_upload_id"] = file_upload_id
 
                 if tool_name in tool_schemas:
                     schema_cls = tool_schemas[tool_name]
@@ -461,6 +495,7 @@ def run_react_consolidation_agent(
                             f"{val_err}\n"
                             "Please correct the parameters and retry."
                         )
+
                         current_messages.append(
                             ToolMessage(
                                 content=error_message,

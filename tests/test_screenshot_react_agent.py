@@ -360,3 +360,29 @@ def test_create_database_page_retries_without_image_on_file_upload_error(mock_no
     fallback_payload = mock_notion_client.pages.create.call_args_list[1].kwargs
     fallback_children = fallback_payload["children"]
     assert not any(b.get("type") == "image" for b in fallback_children)
+
+
+def test_append_to_page_input_rejects_hallucinated_placeholders():
+    """Verify AppendToPageInput explicitly rejects common LLM hallucinated placeholder strings."""
+    from deskpilot.agent_tasks.screenshot_agent.react_agent import AppendToPageInput
+    import pytest
+    from pydantic import ValidationError
+
+    for placeholder in ["existing_page_id", "page_id", "null", "none", "", None]:
+        with pytest.raises(ValidationError):
+            AppendToPageInput(page_id=placeholder, section_title="Test")
+
+    # Valid UUID must succeed
+    valid = AppendToPageInput(page_id="3f5e7e99-5fc1-81a4-a61d-ecb7c2bbc6be")
+    assert valid.page_id == "3f5e7e99-5fc1-81a4-a61d-ecb7c2bbc6be"
+    assert valid.section_title == "Screenshot Note"
+
+
+def test_create_database_page_input_defaults_missing_title():
+    """Verify CreateDatabasePageInput defaults title when omitted."""
+    from deskpilot.agent_tasks.screenshot_agent.react_agent import CreateDatabasePageInput
+
+    model = CreateDatabasePageInput(subject="Dev")
+    assert model.title == "Screenshot Note"
+
+

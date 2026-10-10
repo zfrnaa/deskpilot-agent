@@ -97,33 +97,11 @@ flowchart LR
 
 DeskPilot launches with a clean **3-panel morning boot dashboard** (System Hygiene, Package Updates, and Today's Agenda) with live LangSmith tracing diagnostics and an expanded 7-option menu:
 
-```text
-╭───────────────────────────── DeskPilot Morning Command Center ─────────────────────────────╮
-│                                Wednesday, September 09, 2026 - 09:00 AM                     │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
-📡 LangSmith Tracing: Active (Project: DeskPilot) https://smith.langchain.com/projects/p/DeskPilot
-╭── System Hygiene (%TEMP%) ──╮ ╭── Package Updates (winget) ─╮
-│ Bytes Freed: 15.0 MB        │ │ 2 update(s) available:      │
-│ Files Removed: 42           │ │ • Git (2.43.0 -> 2.44.0)    │
-│ Dirs Removed: 5             │ │ • Neovim (0.9.4 -> 0.10.0)  │
-╰─────────────────────────────╯ ╰─────────────────────────────╯
-╭── Today's Agenda (Google Calendar) ────────────────────────────────────────────────────────╮
-│ 2 event(s) scheduled (Wednesday, Sep 09):                                                  │
-│ • [09:00 - 09:30] Team Standup (Google Meet)                                               │
-│ • [14:00 - 15:00] Architecture Review (Conf Room A)                                        │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
+![Dashboard Preview](assets/DeskPilotDashboard.png)
 
-╭── Action Menu ─────────────────────────────────────────────────────────────────────────────╮
-│ [1]  Triage Screenshots (Sort to Notion & cleanup)                                          │
-│ [2]  Downloads Folder Cleanup (Smart categorize & delete advice)                           │
-│ [3]  Clean Floorp Bookmarks (Launch floorp bookmark preview)                               │
-│ [4]  Upgrade Winget Packages (Execute interactive winget upgrade)                          │
-│ [5]  Notion Read-Later Digest (Preview pick & mark read)                                   │
-│ [6]  Run Agent Evaluations (LangSmith Benchmark)                                           │
-│ [0]  Dismiss & Exit                                                                        │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
-> Select an option [0-6]: 
-```
+and here is the Notification Toast that appears on Windows boot:
+
+![Startup Notification Toast](assets/DeskPilotToast.png)
 
 > **On-Demand Floorp View**: When option `[3]` is selected, Floorp bookmarks audit executes on-demand without slowing down your initial boot. When bookmarks data is present, the dashboard seamlessly expands to a 2x2 grid displaying the Floorp Bookmarks panel alongside System Hygiene, Winget, and Calendar.
 
@@ -274,59 +252,6 @@ To remove DeskPilot from Windows startup at any time:
 
 ## Configuration Reference
 
-### `config.yaml`
-```yaml
-# %TEMP% directory cleaner
-temp_cleaner:
-  enabled: true
-  max_age_hours: 24
-  temp_path: null     # null defaults to Windows %TEMP%
-
-# Floorp browser bookmark auditor (on-demand via menu option [3])
-floorp:
-  enabled: true
-  profile_path: null  # null auto-locates places.sqlite
-
-# Google Calendar morning agenda
-calendar:
-  enabled: true
-  credentials_path: credentials.json
-  token_path: token.json
-  calendar_id: primary
-  max_results: 20
-
-# Notion workspace integration
-notion:
-  enabled: true
-  token: ''
-  parent_page_id: ''              # Legacy / fallback parent page
-  read_later_database_id: ''      # "The Read Later List" newsfeed database ID
-  screenshot_destinations:
-    work_notes_database_id: ''    # Database ID for WorkNote (with dynamic schema introspection)
-    due_diligence_page_id: ''     # Page ID for Due Diligence Questionnaire
-    brainstorm_page_id: ''        # Page ID for Brainstorm Session
-
-# Screenshots folder triage
-screenshots:
-  enabled: true
-  directory: ~/Pictures/Screenshots
-  delete_synced_local: true
-
-# Downloads folder hygiene
-downloads:
-  enabled: true
-  directory: ~/Downloads
-  stale_days: 30
-
-# Winget package updater & exclusions
-winget:
-  enabled: true
-  timeout_secs: 15
-  ignore_packages:
-    - AdvancedSystemCare
-    - RevoUninstallerPro
-```
-
 ### Environment Variables (`.env`)
 Environment variables override settings loaded from `config.yaml`:
 
@@ -362,25 +287,6 @@ DeskPilot is built with strict Test-Driven Development (TDD) principles.
 ```powershell
 # Run the complete test suite
 uv run pytest -v
-
-# Run agent evaluations and HITL breakpoint tests
-uv run pytest tests/test_downloads_hitl.py -v
-uv run pytest tests/test_react_guardrails.py -v
-uv run pytest tests/test_eval_runner.py -v
-uv run pytest tests/test_evaluators.py -v
-uv run pytest tests/test_tracing.py -v
-
-# Run core boot and agent modules
-uv run pytest tests/test_cli.py -v
-uv run pytest tests/test_package_checker.py -v
-uv run pytest tests/test_screenshot_agent.py -v
-uv run pytest tests/test_downloads_agent.py -v
-uv run pytest tests/test_read_later_agent.py -v
-uv run pytest tests/test_system_hygiene.py -v
-uv run pytest tests/test_bookmarks.py -v
-uv run pytest tests/test_calendar_briefing.py -v
-uv run pytest tests/test_startup_scripts.py -v
-uv run pytest tests/test_config.py -v
 ```
 
 ---

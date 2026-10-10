@@ -1,14 +1,18 @@
 # DeskPilot Configuration File
 
+# %TEMP% directory cleaner
 temp_cleaner:
   enabled: true
   max_age_hours: 24
   temp_path: null
+  # null defaults to Windows %TEMP%
 
+# Floorp browser bookmark auditor (on-demand via menu option [3])
 floorp:
   enabled: true
   profile_path: null
 
+# Google Calendar morning agenda
 calendar:
   enabled: true
   credentials_path: credentials.json
@@ -16,26 +20,30 @@ calendar:
   calendar_id: primary
   max_results: 20
 
+# Notion workspace integration
 notion:
   enabled: true
   token: ''
-  parent_page_id: ''
-  read_later_database_id: ''
+  parent_page_id: ''              # Legacy / fallback parent page
+  read_later_database_id: ''      # "The Read Later List" newsfeed database ID
   screenshot_destinations:
-    work_notes_database_id: ''
-    due_diligence_page_id: ''
-    brainstorm_page_id: ''
+    work_notes_database_id: ''    # Database ID for WorkNote (with dynamic schema introspection)
+    due_diligence_page_id: ''     # Page ID for Due Diligence Questionnaire
+    brainstorm_page_id: ''        # Page ID for Brainstorm Session
 
+# Screenshots folder triage
 screenshots:
   enabled: true
   directory: ~/Pictures/Screenshots
   delete_synced_local: true
 
+# Downloads folder hygiene
 downloads:
   enabled: true
   directory: ~/Downloads
   stale_days: 30
 
+# Winget package updater & exclusions
 winget:
   enabled: true
   timeout_secs: 15
