@@ -85,20 +85,65 @@ def play_audio_samples(samples: Any, sample_rate: int) -> None:
         logger.warning("Audio playback failed: %s", exc)
 
 
+def play_chime(kind: str = "option", sample_rate: int = 24000) -> None:
+    """Play a clean, subtle audio chime (kind='option' or 'done') generated with numpy."""
+    try:
+        import numpy as np
+
+        def _generate_tone(freq: float, duration: float, volume: float = 0.15) -> np.ndarray:
+            t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+            fade_len = int(0.01 * sample_rate)
+            envelope = np.ones_like(t)
+            if len(envelope) > 2 * fade_len:
+                envelope[:fade_len] = np.linspace(0, 1, fade_len)
+                envelope[-fade_len:] = np.linspace(1, 0, fade_len)
+            return (np.sin(2 * np.pi * freq * t) * envelope * volume).astype(np.float32)
+
+        if kind == "done":
+            # Soft two-tone confirmation chime (A5 -> D6)
+            tone1 = _generate_tone(880.0, 0.08, volume=0.15)
+            pause = np.zeros(int(sample_rate * 0.02), dtype=np.float32)
+            tone2 = _generate_tone(1174.66, 0.16, volume=0.15)
+            chime = np.concatenate([tone1, pause, tone2])
+        else:
+            # Subtle ascending two-tone for option selection
+            tone1 = _generate_tone(587.33, 0.06, volume=0.12)
+            pause = np.zeros(int(sample_rate * 0.015), dtype=np.float32)
+            tone2 = _generate_tone(880.0, 0.08, volume=0.12)
+            chime = np.concatenate([tone1, pause, tone2])
+
+        play_audio_samples(chime, sample_rate)
+    except Exception as exc:
+        logger.debug("Failed to play chime: %s", exc)
+
+
+def play_chime_in_background(kind: str = "option") -> None:
+    """Play a chime non-blockingly in the background."""
+    thread = threading.Thread(
+        target=play_chime,
+        args=(kind,),
+        daemon=True,
+        name="DeskPilot-Chime-Worker",
+    )
+    thread.start()
+
+
 def speak_text_sync(text: str, voice_cfg: VoiceConfig) -> bool:
-    """Synthesize text and play audio synchronously. Logs warnings on failure without throwing."""
+    """Synthesize text and play audio synchronously, followed by a completion chime."""
     if not text.strip() or not voice_cfg.enabled:
         return False
 
     try:
-        kokoro = get_kokoro(voice_cfg)
-        samples, sample_rate = kokoro.create(
-            text,
-            voice=voice_cfg.voice,
-            speed=voice_cfg.speed,
-            lang=voice_cfg.lang,
-        )
+        with _kokoro_lock:
+            kokoro = get_kokoro(voice_cfg)
+            samples, sample_rate = kokoro.create(
+                text,
+                voice=voice_cfg.voice,
+                speed=voice_cfg.speed,
+                lang=voice_cfg.lang,
+            )
         play_audio_samples(samples, sample_rate)
+        play_chime("done")
         return True
     except Exception as exc:
         logger.warning("Voice synthesis failed for '%s': %s", text, exc)

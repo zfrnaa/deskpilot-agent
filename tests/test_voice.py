@@ -118,7 +118,8 @@ def test_speak_mocked(mock_play, mock_get_kokoro):
         speed=1.0,
         lang="en-us",
     )
-    mock_play.assert_called_once()
+    # Called twice: once for speech audio, once for completion chime
+    assert mock_play.call_count == 2
 
 
 @patch("deskpilot.voice.threading.Thread")

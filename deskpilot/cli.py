@@ -381,7 +381,15 @@ def prompt_action_menu(
         )
     )
     prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
-    return normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
+    selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
+    if selection in {"0", "1", "2", "3", "4", "5", "6"}:
+        try:
+            from deskpilot.voice import play_chime_in_background
+
+            play_chime_in_background("option")
+        except Exception:
+            pass
+    return selection
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
