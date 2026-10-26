@@ -55,3 +55,11 @@ winget:
 ollama:
   model: minicpm-v
   url: http://localhost:11434
+
+# Voice prompt notifications (Kokoro-ONNX neural TTS)
+voice:
+  enabled: true
+  voice: af_bella    # af_bella, af_sarah, am_adam, am_michael
+  speed: 1.0
+  lang: en-us
+

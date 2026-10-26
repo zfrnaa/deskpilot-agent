@@ -471,16 +471,44 @@ async def test_execute_menu_action_option_3_floorp_bookmarks_preview():
 
 @pytest.mark.asyncio
 async def test_execute_menu_action_option_4_winget_upgrade():
-    """Verify that choice '4' attempts to run winget upgrade interactively."""
+    """Verify that choice '4' attempts to run winget upgrade interactively when confirmed."""
     console = Console(record=True, width=100)
 
     with patch("deskpilot.cli.subprocess.run") as mock_sub:
-        should_continue = await execute_menu_action("4", console=console)
+        should_continue = await execute_menu_action(
+            "4",
+            console=console,
+            prompt_func=lambda _: "y",
+        )
         assert should_continue is True
         mock_sub.assert_called_once()
         args = mock_sub.call_args[0][0]
         assert "winget" in args
         assert "upgrade" in args
+
+
+@pytest.mark.asyncio
+async def test_execute_menu_action_option_4_declined():
+    """Verify that choice '4' prompts and cancels if the user declines."""
+    console = Console(record=True, width=100)
+    mock_state = BootState()
+    mock_state.winget_updates = WingetUpdateResult(
+        total_count=1,
+        updates=[WingetUpdateItem(name="Git", id="Git.Git", version="2.43.0", available_version="2.44.0")],
+    )
+
+    with patch("deskpilot.cli.subprocess.run") as mock_sub:
+        should_continue = await execute_menu_action(
+            "4",
+            state=mock_state,
+            console=console,
+            prompt_func=lambda _: "n",
+        )
+        assert should_continue is True
+        mock_sub.assert_not_called()
+        output = console.export_text()
+        assert "Available Updates" in output
+        assert "cancelled by user" in output
 
 
 @pytest.mark.asyncio

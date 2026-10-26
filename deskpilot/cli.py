@@ -663,6 +663,17 @@ async def execute_menu_action(
                 c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow]")
                 for err in errors:
                     c.print(f"  [yellow]• {err}[/yellow]")
+
+            if cfg.voice.enabled:
+                try:
+                    from deskpilot.voice import speak_in_background, summarize_screenshots_for_voice
+
+                    speak_in_background(
+                        summarize_screenshots_for_voice(synced, len(errors)),
+                        cfg.voice,
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             c.print(f"[red]Screenshot Triage failed: {e}[/red]")
         return True
@@ -682,6 +693,17 @@ async def execute_menu_action(
             c.print(f"[bold green]Downloads Cleanup complete:[/bold green] Freed: {freed}, Moved to Archive: {moved}")
             if errors:
                 c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+
+            if cfg.voice.enabled:
+                try:
+                    from deskpilot.voice import speak_in_background, summarize_downloads_for_voice
+
+                    speak_in_background(
+                        summarize_downloads_for_voice(moved),
+                        cfg.voice,
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             c.print(f"[red]Downloads Cleanup failed: {e}[/red]")
         return True
@@ -724,17 +746,65 @@ async def execute_menu_action(
                     for item in fb_res.sample_duplicates[:5]:
                         dup_table.add_row(str(item.get("count", 0)), item.get("url", "")[:70])
                     c.print(dup_table)
+
+                if cfg.voice.enabled:
+                    try:
+                        from deskpilot.voice import speak_in_background, summarize_bookmarks_for_voice
+
+                        speak_in_background(
+                            summarize_bookmarks_for_voice(fb_res),
+                            cfg.voice,
+                        )
+                    except Exception:
+                        pass
         except Exception as e:
             c.print(f"[red]Floorp bookmark audit failed: {e}[/red]")
         return True
     elif normalized_choice == "4":
-        c.print("[cyan]Executing interactive winget upgrade...[/cyan]")
+        c.print("[cyan]Checking for package updates...[/cyan]")
         try:
             cfg = settings or load_settings()
             if cfg.winget.ignore_packages:
                 c.print(
                     f"[yellow]Ignored packages excluded from reporting: {', '.join(cfg.winget.ignore_packages)}[/yellow]"
                 )
+
+            # Check for updates or use already fetched updates from state
+            updates = None
+            if state is not None and isinstance(state.winget_updates, WingetUpdateResult) and state.winget_updates.updates:
+                updates = state.winget_updates.updates
+            else:
+                wu_res = await check_winget_updates(config=cfg.winget)
+                if wu_res.error:
+                    c.print(f"[yellow]Package check warning: {wu_res.error}[/yellow]")
+                elif wu_res.timed_out:
+                    c.print("[yellow]Package check timed out.[/yellow]")
+                elif wu_res.total_count == 0:
+                    c.print("[bold green]All packages up to date! Nothing to upgrade.[/bold green]")
+                    return True
+                else:
+                    updates = wu_res.updates
+
+            if updates:
+                pkg_table = Table(title=f"Available Updates ({len(updates)})", show_header=True)
+                pkg_table.add_column("Package Name", style="white", ratio=2)
+                pkg_table.add_column("Package Id", style="cyan", ratio=2)
+                pkg_table.add_column("Current Version", style="dim", ratio=1)
+                pkg_table.add_column("Available Version", style="green", ratio=1)
+                for item in updates:
+                    pkg_table.add_row(item.name, item.id, item.version, item.available_version)
+                c.print(pkg_table)
+
+                ans = (
+                    prompt_func("Do you want to proceed with upgrading packages? [y/N]: ")
+                    .strip()
+                    .lower()
+                )
+                if ans not in {"y", "yes"}:
+                    c.print("[dim]Package upgrade cancelled by user.[/dim]")
+                    return True
+
+            c.print("[cyan]Executing interactive winget upgrade...[/cyan]")
             subprocess.run(["winget", "upgrade", "--all", "--include-unknown"], check=False)
         except FileNotFoundError:
             c.print("[red]winget executable not found on this system.[/red]")
@@ -875,6 +945,16 @@ async def main_async(
 
     # Render terminal dashboard
     render_dashboard(state, console=c, settings=settings)
+
+    # Conversational voice briefing dispatch
+    if settings.voice.enabled:
+        try:
+            from deskpilot.voice import speak_in_background, summarize_boot_for_voice
+
+            speech_text = summarize_boot_for_voice(state)
+            speak_in_background(speech_text, settings.voice)
+        except Exception:
+            pass
 
     if startup:
         c.print("[dim]Startup mode active: boot sequence completed successfully.[/dim]")

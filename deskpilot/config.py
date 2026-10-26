@@ -143,6 +143,24 @@ class StorageConfig(BaseModel):
         return p
 
 
+class VoiceConfig(BaseModel):
+    """Configuration for local Kokoro-ONNX voice prompts."""
+
+    enabled: bool = True
+    voice: str = "af_bella"
+    speed: float = 1.0
+    lang: str = "en-us"
+    cache_dir: Path = Path("~/.cache/deskpilot/kokoro")
+    model_path: Path | None = None
+    voices_path: Path | None = None
+
+    def get_resolved_cache_dir(self) -> Path:
+        """Return resolved path to the Kokoro model cache directory."""
+        p = self.cache_dir.expanduser().resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+
 
 class MappedSettingsSource(PydanticBaseSettingsSource):
     """Wraps a settings source to map flat notion_* variables to nested notion dictionary."""
@@ -208,6 +226,7 @@ class Settings(BaseSettings):
     winget: WingetConfig = Field(default_factory=WingetConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
 
     # Top-level API keys and telemetry settings
     gemini_api_key: str = ""
