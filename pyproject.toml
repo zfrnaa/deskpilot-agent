@@ -5,7 +5,7 @@ description = "Personal multi-agent boot orchestrator"
 authors = [
     { name = "zfrnaa", email = "frantajudin@outlook.my" }
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.0",
     "google-api-python-client>=2.200.0",
