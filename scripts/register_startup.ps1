@@ -21,6 +21,9 @@
 .PARAMETER Force
     Overwrites any existing scheduled task or startup shortcut without prompting.
 
+.PARAMETER RunAsAdmin
+    If specified, registers the scheduled task to execute with highest administrator privileges (RunLevel: Highest).
+
 .PARAMETER WorkingDirectory
     Working directory for execution. Defaults to the DeskPilot repository root.
 
@@ -51,6 +54,10 @@ param(
 
     [Parameter()]
     [switch]$Force,
+
+    [Parameter()]
+    [Alias("Elevated", "Admin")]
+    [switch]$RunAsAdmin,
 
     [Parameter()]
     [string]$WorkingDirectory
@@ -148,9 +155,10 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
             if ($taskExists -and -not $Force) {
                 Write-Warning "Scheduled task '$TaskName' already exists. Use -Force to overwrite."
             } else {
+                $runLevel = if ($RunAsAdmin) { "Highest" } else { "Limited" }
                 $action = New-ScheduledTaskAction -Execute $execPath -Argument $taskArgs -WorkingDirectory $WorkingDirectory
                 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-                $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+                $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel $runLevel
                 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 
                 Register-ScheduledTask -TaskName $TaskName `
@@ -173,6 +181,9 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
                     "/SC", "ONLOGON",
                     "/F"
                 )
+                if ($RunAsAdmin) {
+                    $schArgs += @("/RL", "HIGHEST")
+                }
                 $proc = Start-Process -FilePath "schtasks.exe" -ArgumentList $schArgs -Wait -PassThru -NoNewWindow
                 if ($proc.ExitCode -eq 0) {
                     Write-Host "[OK] Scheduled task '$TaskName' created via schtasks.exe." -ForegroundColor Green
