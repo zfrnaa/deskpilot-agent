@@ -62,4 +62,6 @@ voice:
   voice: af_bella    # af_bella, af_sarah, am_adam, am_michael
   speed: 1.0
   lang: en-us
+  device: null       # null uses Windows default, or specify e.g. "Speaker" or "Corsair"
+
 

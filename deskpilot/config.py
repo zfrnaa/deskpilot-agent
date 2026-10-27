@@ -150,6 +150,7 @@ class VoiceConfig(BaseModel):
     voice: str = "af_bella"
     speed: float = 1.0
     lang: str = "en-us"
+    device: str | int | None = None  # None for default, or e.g. "Speaker" or "Corsair" or device ID
     cache_dir: Path = Path("~/.cache/deskpilot/kokoro")
     model_path: Path | None = None
     voices_path: Path | None = None

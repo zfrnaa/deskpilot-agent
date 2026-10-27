@@ -93,19 +93,45 @@ def get_kokoro(voice_cfg: VoiceConfig) -> Any:
         return _kokoro_instance
 
 
-def play_audio_samples(samples: Any, sample_rate: int) -> None:
+def resolve_audio_device(device_spec: str | int | None) -> int | None:
+    """Resolve audio output device index from user spec (int index, substring name, or None for system default)."""
+    if device_spec is None:
+        return None
+
+    try:
+        import sounddevice as sd
+
+        if isinstance(device_spec, int):
+            return device_spec
+        if isinstance(device_spec, str) and device_spec.isdigit():
+            return int(device_spec)
+
+        # Match substring against device names
+        query = str(device_spec).lower()
+        devices = sd.query_devices()
+        for idx, dev in enumerate(devices):
+            if dev.get("max_output_channels", 0) > 0 and query in dev.get("name", "").lower():
+                return idx
+    except Exception as exc:
+        logger.debug("Failed resolving audio device '%s': %s", device_spec, exc)
+
+    return None
+
+
+def play_audio_samples(samples: Any, sample_rate: int, device: str | int | None = None) -> None:
     """Play raw audio numpy array using sounddevice with thread-safe serialization."""
     try:
         import sounddevice as sd
 
+        dev_index = resolve_audio_device(device)
         with _audio_lock:
-            sd.play(samples, sample_rate)
+            sd.play(samples, sample_rate, device=dev_index)
             sd.wait()
     except Exception as exc:
         logger.warning("Audio playback failed: %s", exc)
 
 
-def play_chime(kind: str = "option", sample_rate: int = 24000) -> None:
+def play_chime(kind: str = "option", sample_rate: int = 24000, device: str | int | None = None) -> None:
     """Play a clean, subtle audio chime (kind='option' or 'done') generated with numpy."""
     try:
         import numpy as np
@@ -132,16 +158,16 @@ def play_chime(kind: str = "option", sample_rate: int = 24000) -> None:
             tone2 = _generate_tone(880.0, 0.08, volume=0.12)
             chime = np.concatenate([tone1, pause, tone2])
 
-        play_audio_samples(chime, sample_rate)
+        play_audio_samples(chime, sample_rate, device=device)
     except Exception as exc:
         logger.debug("Failed to play chime: %s", exc)
 
 
-def play_chime_in_background(kind: str = "option") -> None:
+def play_chime_in_background(kind: str = "option", device: str | int | None = None) -> None:
     """Play a chime non-blockingly in the background."""
     thread = threading.Thread(
         target=play_chime,
-        args=(kind,),
+        args=(kind, 24000, device),
         daemon=True,
         name="DeskPilot-Chime-Worker",
     )
@@ -162,8 +188,8 @@ def speak_text_sync(text: str, voice_cfg: VoiceConfig) -> bool:
                 speed=voice_cfg.speed,
                 lang=voice_cfg.lang,
             )
-        play_audio_samples(samples, sample_rate)
-        play_chime("done")
+        play_audio_samples(samples, sample_rate, device=voice_cfg.device)
+        play_chime("done", device=voice_cfg.device)
         return True
     except Exception as exc:
         logger.warning("Voice synthesis failed for '%s': %s", text, exc)
