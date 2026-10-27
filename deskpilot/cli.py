@@ -356,6 +356,7 @@ def normalize_menu_choice(raw: str) -> str:
 def prompt_action_menu(
     console: Console | None = None,
     prompt_func: Callable[[str], str] = input,
+    voice_enabled: bool = True,
 ) -> str:
     """Display the action menu and prompt user for their selection."""
     c = ui_theme.get_console(console)
@@ -382,7 +383,7 @@ def prompt_action_menu(
     )
     prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
     selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
-    if selection in {"0", "1", "2", "3", "4", "5", "6"}:
+    if selection in {"0", "1", "2", "3", "4", "5", "6"} and voice_enabled:
         try:
             from deskpilot.voice import play_chime_in_background
 
@@ -999,9 +1000,10 @@ async def main_async(
                 c.print(f"[red]Google Calendar authorization failed: {auth_exc}[/red]")
 
     # Interactive menu loop
+    voice_active = getattr(settings, "voice", None) is None or settings.voice.enabled
     while True:
         try:
-            choice = prompt_action_menu(console=c, prompt_func=prompt_func)
+            choice = prompt_action_menu(console=c, prompt_func=prompt_func, voice_enabled=voice_active)
         except (KeyboardInterrupt, EOFError):
             c.print("\n[dim]Dismissed. Exiting DeskPilot.[/dim]")
             return 0

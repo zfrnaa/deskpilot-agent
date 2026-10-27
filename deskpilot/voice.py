@@ -28,10 +28,15 @@ KOKORO_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/downlo
 
 _kokoro_instance: Any = None
 _kokoro_lock = threading.Lock()
+_audio_lock = threading.Lock()
+
+# Minimal expected sizes in bytes to verify download integrity
+MIN_MODEL_SIZE = 100_000_000   # ~325 MB full
+MIN_VOICES_SIZE = 10_000_000   # ~28 MB full
 
 
 def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
-    """Ensure Kokoro ONNX model and voices file exist locally, downloading if necessary."""
+    """Ensure Kokoro ONNX model and voices file exist locally and are valid, downloading if necessary."""
     cache_dir = voice_cfg.get_resolved_cache_dir()
 
     model_path = voice_cfg.model_path or (cache_dir / "kokoro-v1.0.onnx")
@@ -40,19 +45,33 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
     model_path = Path(model_path).expanduser().resolve()
     voices_path = Path(voices_path).expanduser().resolve()
 
-    if not model_path.exists():
+    if not model_path.exists() or model_path.stat().st_size < MIN_MODEL_SIZE:
         logger.info("Downloading Kokoro ONNX model (~310MB) to %s ...", model_path)
         tmp_model = model_path.with_suffix(".tmp")
-        urllib.request.urlretrieve(KOKORO_MODEL_URL, tmp_model)
-        tmp_model.rename(model_path)
-        logger.info("Kokoro model download complete.")
+        try:
+            urllib.request.urlretrieve(KOKORO_MODEL_URL, tmp_model)
+            if tmp_model.stat().st_size < MIN_MODEL_SIZE:
+                raise IOError(f"Downloaded model file incomplete: {tmp_model.stat().st_size} bytes")
+            tmp_model.replace(model_path)
+            logger.info("Kokoro model download complete.")
+        except Exception:
+            if tmp_model.exists():
+                tmp_model.unlink(missing_ok=True)
+            raise
 
-    if not voices_path.exists():
+    if not voices_path.exists() or voices_path.stat().st_size < MIN_VOICES_SIZE:
         logger.info("Downloading Kokoro voices file (~27MB) to %s ...", voices_path)
         tmp_voices = voices_path.with_suffix(".tmp")
-        urllib.request.urlretrieve(KOKORO_VOICES_URL, tmp_voices)
-        tmp_voices.rename(voices_path)
-        logger.info("Kokoro voices download complete.")
+        try:
+            urllib.request.urlretrieve(KOKORO_VOICES_URL, tmp_voices)
+            if tmp_voices.stat().st_size < MIN_VOICES_SIZE:
+                raise IOError(f"Downloaded voices file incomplete: {tmp_voices.stat().st_size} bytes")
+            tmp_voices.replace(voices_path)
+            logger.info("Kokoro voices download complete.")
+        except Exception:
+            if tmp_voices.exists():
+                tmp_voices.unlink(missing_ok=True)
+            raise
 
     return model_path, voices_path
 
@@ -75,12 +94,13 @@ def get_kokoro(voice_cfg: VoiceConfig) -> Any:
 
 
 def play_audio_samples(samples: Any, sample_rate: int) -> None:
-    """Play raw audio numpy array using sounddevice."""
+    """Play raw audio numpy array using sounddevice with thread-safe serialization."""
     try:
         import sounddevice as sd
 
-        sd.play(samples, sample_rate)
-        sd.wait()
+        with _audio_lock:
+            sd.play(samples, sample_rate)
+            sd.wait()
     except Exception as exc:
         logger.warning("Audio playback failed: %s", exc)
 
