@@ -956,12 +956,13 @@ async def main_async(
     render_dashboard(state, console=c, settings=settings)
 
     # Conversational voice briefing dispatch
+    voice_worker: Any = None
     if settings.voice.enabled:
         try:
             from deskpilot.voice import speak_in_background, summarize_boot_for_voice
 
             speech_text = summarize_boot_for_voice(state)
-            speak_in_background(speech_text, settings.voice)
+            voice_worker = speak_in_background(speech_text, settings.voice)
         except Exception:
             pass
 
@@ -973,6 +974,10 @@ async def main_async(
             send_windows_toast(title, body, action_command="deskpilot://open")
         except Exception:
             pass
+
+        # In startup mode, wait for the background voice briefing to finish before process termination
+        if voice_worker is not None and getattr(voice_worker, "is_alive", None) and voice_worker.is_alive():
+            voice_worker.join(timeout=20.0)
         return 0
 
 

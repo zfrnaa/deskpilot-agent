@@ -170,10 +170,10 @@ def speak_text_sync(text: str, voice_cfg: VoiceConfig) -> bool:
         return False
 
 
-def speak_in_background(text: str, voice_cfg: VoiceConfig) -> None:
-    """Dispatch voice synthesis and playback non-blockingly on a background daemon thread."""
+def speak_in_background(text: str, voice_cfg: VoiceConfig) -> threading.Thread | None:
+    """Dispatch voice synthesis and playback on a background thread. Returns the thread if spawned."""
     if not text.strip() or not voice_cfg.enabled:
-        return
+        return None
 
     thread = threading.Thread(
         target=speak_text_sync,
@@ -182,6 +182,7 @@ def speak_in_background(text: str, voice_cfg: VoiceConfig) -> None:
         name="DeskPilot-Voice-Worker",
     )
     thread.start()
+    return thread
 
 
 # --- Natural Speech Summarizers ---
