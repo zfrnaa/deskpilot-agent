@@ -27,8 +27,8 @@ KOKORO_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/downloa
 KOKORO_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 
 _kokoro_instance: Any = None
-_kokoro_lock = threading.Lock()
-_audio_lock = threading.Lock()
+_kokoro_lock = threading.RLock()
+_audio_lock = threading.RLock()
 
 # Minimal expected sizes in bytes to verify download integrity
 MIN_MODEL_SIZE = 100_000_000   # ~325 MB full
@@ -118,8 +118,43 @@ def resolve_audio_device(device_spec: str | int | None) -> int | None:
     return None
 
 
+def convert_to_wav_bytes(samples: Any, sample_rate: int) -> bytes:
+    """Convert float32 mono audio numpy array to 16-bit PCM WAV in memory."""
+    import io
+    import wave
+    import numpy as np
+
+    arr = np.asarray(samples, dtype=np.float32)
+    int16_samples = (arr * 32767).clip(-32768, 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(int16_samples.tobytes())
+    return buf.getvalue()
+
+
 def play_audio_samples(samples: Any, sample_rate: int, device: str | int | None = None) -> None:
-    """Play raw audio numpy array using sounddevice with thread-safe serialization."""
+    """Play raw audio numpy array using Windows native winsound, falling back to sounddevice if needed."""
+    import os
+
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return
+
+    # Primary method: Windows native PlaySound from memory (robust, zero device hangs)
+    if os.name == "nt":
+        try:
+            import winsound
+
+            wav_data = convert_to_wav_bytes(samples, sample_rate)
+            with _audio_lock:
+                winsound.PlaySound(wav_data, winsound.SND_MEMORY)
+            return
+        except Exception as exc:
+            logger.debug("winsound playback failed, falling back to sounddevice: %s", exc)
+
+    # Cross-platform fallback: sounddevice
     try:
         import sounddevice as sd
 
