@@ -2,15 +2,33 @@
 
 > **Personal Multi-Agent Morning Command Center & Boot Orchestrator**
 
-DeskPilot is an intelligent personal productivity orchestrator designed to run upon logging into your computer. It pairs **sub-second parallel morning hygiene checks** with **on-demand LangGraph autonomous agents** to organize your digital workspace before you start your day.
+DeskPilot is an intelligent personal productivity orchestrator designed to run upon logging into your computer. It pairs **sub-second parallel morning hygiene checks** with **on-demand LangGraph autonomous agents** and **local Kokoro neural voice briefings** to organize your digital workspace before you start your day.
+
+---
+
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Core Features](#core-features)
+- [Terminal Dashboard Preview](#terminal-dashboard-preview)
+- [Prerequisites](#prerequisites)
+- [Quickstart Guide](#quickstart-guide)
+- [Service Integrations Setup](#service-integrations-setup)
+- [Windows Startup Integration](#windows-startup-integration)
+- [Configuration Reference](#configuration-reference)
+- [Safety & Privacy Guarantees](#safety--privacy-guarantees)
+- [Development & Testing](#development--testing)
 
 ---
 
 ## Architecture Overview
 
 DeskPilot utilizes a **dual-layer architecture**:
-1. **Layer 1: Sub-Second Boot & Fast Hygiene Layer** &mdash; Runs fast, local, lightweight hygiene tasks concurrently using `asyncio.gather`. Never imports heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times (<1s).
-2. **Layer 2: Autonomous Agent & State Persistence Layer** &mdash; Dynamically loaded only on demand when triggered by user selection. Powered by LangGraph state machines, multi-modal LLMs (Google Gemini), ReAct consolidation agents with adversarial schema interceptors, and native checkpointers (`MemorySaver` / checkpointing interfaces) enabling **Human-in-the-Loop (HITL) pause breakpoints, state inspection, and time-travel resumption**.
+
+1. **Layer 1: Sub-Second Boot & Fast Hygiene Layer** &mdash; Runs fast, local hygiene tasks concurrently using `asyncio.gather`. Does not import heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times (<1s).
+2. **Layer 2: Autonomous Agent & State Persistence Layer** &mdash; Dynamically loaded only on demand when triggered by user selection. Powered by LangGraph state machines, multi-modal LLMs (Google Gemini Vision), ReAct consolidation agents with adversarial schema interceptors, and native checkpointers (`MemorySaver` / SQLite persistence) enabling **Human-in-the-Loop (HITL) pause breakpoints, state inspection, and time-travel resumption**.
 
 <p align="center">
   <img src="assets/architecture.svg" alt="DeskPilot System Architecture" width="100%" />
@@ -58,6 +76,8 @@ flowchart LR
         EXT_GEMINI["Google Gemini API"]:::service
         EXT_NOTION["Notion Workspace"]:::service
         EXT_DISK["Local Filesystem"]:::service
+        EXT_STORE["SQLite State DB"]:::service
+        EXT_VOICE["Kokoro ONNX TTS"]:::service
         EXT_SMITH["LangSmith Tracing"]:::service
     end
 
@@ -65,8 +85,9 @@ flowchart LR
     CLI --> P1
     TempClean & WingetCheck & GCal --> Dash
     Dash -->|User Selection| LAYER2
+    Dash --> EXT_VOICE
     STA --> EXT_GEMINI & EXT_NOTION & EXT_DISK
-    DHA --> EXT_DISK
+    DHA --> EXT_DISK & EXT_STORE
     RLA --> EXT_NOTION
     EVAL --> EXT_SMITH
 ```
@@ -75,13 +96,47 @@ flowchart LR
 
 ---
 
+## Technology Stack
+
+- **Runtime & Tooling:** Python 3.12+ managed with [Astral `uv`](https://docs.astral.sh/uv/)
+- **Agent Orchestration:** LangGraph (StateGraph, `MemorySaver`, HITL `interrupt_before`) & LangChain Core
+- **LLM & Multi-Modal Vision:** Google Gemini Vision via `google-genai` / `langchain-google-genai`
+- **Voice Synthesis:** Kokoro-ONNX neural TTS engine with local ONNX runtime & Windows audio device routing
+- **Terminal Presentation:** [Rich](https://github.com/Textualize/rich) (`Console`, `Live`, `Table`, `Panel`, `Grid`)
+- **Observability:** LangSmith (OTEL trace exports, dataset benchmarks, evaluators)
+- **Integrations:** Google Calendar API, Notion API (`@notionhq/client` with dynamic schema introspection), Windows Package Manager (`winget`), Floorp browser (`places.sqlite` immutable reader)
+
+---
+
+## Project Structure
+
+```text
+multi-agent-orchestrator-pers1/
+├── deskpilot/
+│   ├── agent_tasks/        # Layer 2 on-demand LangGraph agents (screenshots, downloads HITL)
+│   ├── boot_tasks/         # Layer 1 sub-second parallel hygiene (temp cleaner, winget, calendar)
+│   ├── evals/              # LangSmith deterministic benchmark datasets and evaluators
+│   ├── storage/            # Dual-layer SQLite persistence & thread checkpoint storage
+│   ├── ui/                 # Rich dashboard layouts, themes, and interactive renderers
+│   ├── voice.py            # Kokoro-ONNX neural TTS briefing and audio chimes
+│   ├── config.py           # Pydantic settings models and YAML configuration loader
+│   └── cli.py              # Application entrypoint, CLI arguments, and action menu
+├── scripts/                # Windows PowerShell logon registration automation
+├── tests/                  # Unit, agent persistence, and integration test suites
+├── config.yaml             # Core user configuration file
+└── .env.example            # Environment variables template
+```
+
+---
+
 ## Core Features
 
 ### Fast Boot Sequence (Layer 1)
 - **Windows `%TEMP%` Cleaner**: Recursively purges temporary files older than 24 hours while safely tolerating locked Windows process handles.
-- **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom package exclusions (e.g. ignoring `AdvancedSystemCare` and `RevoUninstallerPro`).
+- **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom package exclusions (`AdvancedSystemCare`, `RevoUninstallerPro`, `DriverBooster`).
 - **Google Calendar Agenda**: Fetches your daily schedule, displaying all-day events, meeting times, Google Meet locations, and token expiry warnings.
-- **Native Windows Toast Notifications**: Emits lightweight Windows toast notifications on boot with action buttons and custom `deskpilot://` protocol handler registration for instant one-click terminal activation.
+- **Windows Toast & Protocol Ingress**: Emits lightweight Windows toast notifications on boot with action buttons and custom `deskpilot://` protocol handler registration for instant one-click terminal activation.
+- **Local Neural Voice Briefing (Kokoro-ONNX)**: Delivers natural spoken morning briefings covering agenda items and pending updates in the background without blocking terminal responsiveness.
 
 ### Intelligent Autonomous Agents & State Layer (Layer 2)
 - **Screenshot Triage Agent (Option 1)**: Scans your Screenshots folder, analyzes images using Google Gemini Vision, categorizes them into smart clusters, and dynamically routes them to designated Notion targets (WorkNote database with dynamic schema introspection, Due Diligence Questionnaire page, Brainstorm Session page, or Local Keep) with strict safety guarantees (only confirmed synced items are cleaned locally). Powered by a **ReAct consolidation agent** with Pydantic input schemas and adversarial self-correction loops.
@@ -103,6 +158,7 @@ and here is the Notification Toast that appears on Windows boot:
 
 ![Startup Notification Toast](assets/DeskPilotToast.png)
 
+> [!TIP]
 > **On-Demand Floorp View**: When option `[3]` is selected, Floorp bookmarks audit executes on-demand without slowing down your initial boot. When bookmarks data is present, the dashboard seamlessly expands to a 2x2 grid displaying the Floorp Bookmarks panel alongside System Hygiene, Winget, and Calendar.
 
 ---
@@ -110,7 +166,7 @@ and here is the Notification Toast that appears on Windows boot:
 ## Prerequisites
 
 - **Operating System**: Windows 10 / 11 (64-bit)
-- **Python**: Python 3.11 or newer
+- **Python**: Python 3.12 or newer (tested with 3.12 and 3.14)
 - **Package Manager**: [`uv`](https://docs.astral.sh/uv/) (Astral's ultra-fast Python package manager)
 - **PowerShell**: Windows PowerShell 5.1+ or PowerShell 7+ (for startup integration scripts)
 
@@ -145,8 +201,11 @@ Edit `.env` and `config.yaml` to configure your API tokens and directories (see 
 # Interactive Command Center (Action Menu [0-6])
 uv run deskpilot
 
-# Non-interactive automated boot run (executes Layer 1 hygiene and exits)
+# Non-interactive automated boot run (executes Layer 1 + background voice and exits)
 uv run deskpilot --startup
+
+# Display SQLite cross-thread state persistence and checkpointer statistics
+uv run deskpilot --storage-status
 
 # Run LangSmith connectivity diagnostic
 uv run deskpilot --check-tracing
@@ -154,8 +213,8 @@ uv run deskpilot --check-tracing
 # Run agent benchmark evaluations (local sandbox)
 uv run deskpilot --eval --local-only
 
-# Run agent benchmark evaluations and upload results to LangSmith
-uv run deskpilot --eval
+# Run agent benchmark evaluations for downloads and upload results to LangSmith
+uv run deskpilot --eval --eval-target downloads
 ```
 
 ---
@@ -206,18 +265,25 @@ When syncing to the **WorkNote** database, DeskPilot never relies on hardcoded p
    GEMINI_API_KEY=AIzaSy...
    ```
 
-### 4. Floorp Browser Bookmarks (On-Demand)
+### 4. Neural Voice Briefings (Kokoro-ONNX)
+DeskPilot includes an on-device neural text-to-speech engine powered by Kokoro-ONNX.
+- **Automatic Caching**: Model weights (`kokoro-v1.0.onnx`) and voice packs (`voices-v1.0.bin`, ~27MB) download automatically on first run to `~/.cache/kokoro/` (or configured directory).
+- **Audio Output Selection**: Specify a dedicated audio device (`device: "Headset"` or `device: "Speakers"`) in `config.yaml` or leave as `null` to use the Windows system default.
+- **Voice Customization**: Choose from 4 built-in neural voices (`af_bella`, `af_sarah`, `am_adam`, `am_michael`) and configure playback speed in `config.yaml`.
+
+### 5. Floorp Browser Bookmarks (On-Demand)
 - Floorp bookmark auditing is executed **on-demand** via Action Menu option `[3]`, completely decoupled from the boot sequence for sub-second startup speed.
 - DeskPilot automatically searches `%APPDATA%\Floorp\Profiles\*.default-release\places.sqlite`.
 - If using a custom Floorp installation or profile, set `floorp.profile_path` in `config.yaml`.
 - The connection uses SQLite's read-only immutable flag (`?immutable=1&mode=ro`), allowing you to audit bookmarks even while Floorp is open without lock contention or write hazards.
 
-### 5. Winget Package Exclusions
+### 6. Winget Package Exclusions
 To keep your morning boot dashboard clean and avoid repetitive prompts for software you manage separately or keep pinned, configure `winget.ignore_packages` in `config.yaml`:
 - By default, DeskPilot ignores:
   - `AdvancedSystemCare`
   - `RevoUninstallerPro`
-- Exclusions perform case-insensitive substring matching against both package name and package ID (e.g. matching `RevoUninstallerPro` or `IObit.AdvancedSystemCare`).
+  - `DriverBooster`
+- Exclusions perform case-insensitive substring matching against both package name and package ID.
 - Excluded packages are filtered out from both the morning update notification panel and the interactive winget upgrade helper (Option `[4]`).
 
 ---
@@ -231,6 +297,9 @@ Run the registration script from PowerShell:
 ```powershell
 # Register interactive startup task (launches on logon)
 .\scripts\register_startup.ps1
+
+# Register task with elevated privileges (Run as Administrator)
+.\scripts\register_startup.ps1 -RunAsAdmin
 
 # Register non-interactive background check
 .\scripts\register_startup.ps1 -StartupFlag
@@ -264,8 +333,9 @@ Environment variables override settings loaded from `config.yaml`:
 | `NOTION_DUE_DILIGENCE_PAGE_ID` | Notion Page ID for "Due Diligence Questionnaire" screenshots |
 | `NOTION_BRAINSTORM_PAGE_ID` | Notion Page ID for "Brainstorm Session" screenshots |
 | `GEMINI_API_KEY` | Google Gemini API key for vision classification |
-| `LANGCHAIN_TRACING_V2` | Set to `true` to enable LangSmith workflow tracing |
-| `LANGCHAIN_API_KEY` | LangSmith API Key |
+| `LANGSMITH_TRACING` | Set to `true` to enable LangSmith workflow tracing (`LANGCHAIN_TRACING_V2` also supported) |
+| `LANGSMITH_API_KEY` | LangSmith API Key (`LANGCHAIN_API_KEY` also supported) |
+| `LANGSMITH_PROJECT` | LangSmith project name (default: `DeskPilot`) |
 
 ---
 
@@ -275,33 +345,25 @@ Environment variables override settings loaded from `config.yaml`:
 - **Adversarial Schema Validation & Self-Correction**: Notion tool execution is guarded by strict Pydantic models. Malformed arguments or missing UUIDs trigger structured feedback for the agent to self-correct before any network mutation occurs.
 - **Multi-Destination Screenshot Routing & Zero Unsynced Deletion**: The Screenshot Triage Agent **only** removes local screenshots that have been verified as successfully created and confirmed in their designated Notion destination (`is_synced == True`). Images classified as `LOCAL_KEEP` or unapproved clusters are strictly preserved locally and never deleted.
 - **Read-Only SQLite Locking**: The Floorp auditor connects to `places.sqlite` using `immutable=1&mode=ro` on demand. It never locks the database, allowing you to use your browser freely during audits.
-- **Winget Exclusion Protection**: Pinned or blacklisted software packages (`AdvancedSystemCare`, `RevoUninstallerPro`) are automatically filtered out from upgrade lists to prevent unwanted bulk modifications.
+- **Winget Exclusion Protection**: Pinned or blacklisted software packages (`AdvancedSystemCare`, `RevoUninstallerPro`, `DriverBooster`) are automatically filtered out from upgrade lists to prevent unwanted bulk modifications.
 - **Local-First Fast Boot**: All Layer 1 boot checks execute strictly locally on your machine without making heavy network calls or loading LLM libraries.
 
 ---
 
 ## Development & Testing
 
-DeskPilot is built with strict Test-Driven Development (TDD) principles.
+DeskPilot is developed following strict Test-Driven Development (TDD) principles.
 
 ```powershell
 # Run the complete test suite
 uv run pytest -v
+
+# Run fast Layer 1 boot hygiene tests
+uv run pytest tests/test_system_hygiene.py
+
+# Run LangGraph persistence and state checkpointer tests
+uv run pytest tests/test_screenshot_persistence.py tests/test_storage.py
+
+# Run benchmark evaluations locally
+uv run deskpilot --eval --local-only
 ```
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to open issues or submit pull requests:
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feat/my-new-feature`.
-3. Ensure all tests pass: `uv run pytest -v`.
-4. Commit your changes: `git commit -m "feat: add support for new browser"`.
-5. Push to the branch and open a Pull Request.
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
