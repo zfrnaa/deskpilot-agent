@@ -101,6 +101,8 @@ Write-Host "Using uv executable: $uvPath" -ForegroundColor Cyan
 $cliArgs = "run --directory `"$WorkingDirectory`" deskpilot"
 if ($StartupFlag) {
     $cliArgs += " --startup"
+} else {
+    $cliArgs += " --tui"
 }
 
 # Check for Windows Terminal (wt.exe) to enable rich 24-bit truecolor and glyphs

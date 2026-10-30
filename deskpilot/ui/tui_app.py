@@ -166,14 +166,37 @@ Screen {
 
 
 def render_logo_art() -> Text:
-    """Render stylized ASCII wordmark banner with a yellow-to-red sunset flame gradient."""
+    """Render stylized ASCII wordmark banner with a seamless, solid horizontal yellow-to-red sunset flame gradient."""
+    logo_lines = [
+        r"  ____  _____ ____  _  ______ ___ _     ___ _____ ",
+        r" |  _ \| ____/ ___|| |/ /  _ \_ _| |   / _ \_   _|",
+        r" | | | |  _| \___ \| ' /| |_) | || |  | | | || |  ",
+        r" | |_| | |___ ___) | . \|  __/| || |__| |_| || |  ",
+        r" |____/|_____|____/|_|\_\_|  |___|_____\___/ |_|  ",
+    ]
+
+    def _hex_to_rgb(h: str) -> tuple[int, int, int]:
+        h = h.lstrip("#")
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+    def _interpolate(c1: tuple[int, int, int], c2: tuple[int, int, int], factor: float) -> str:
+        r = int(c1[0] + (c2[0] - c1[0]) * factor)
+        g = int(c1[1] + (c2[1] - c1[1]) * factor)
+        b = int(c1[2] + (c2[2] - c1[2]) * factor)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    start_rgb = _hex_to_rgb("#ffea79")  # Bright warm golden yellow
+    end_rgb = _hex_to_rgb("#f85149")    # Vivid sunset coral red
+    max_len = max(len(l) for l in logo_lines)
+
     banner = Text()
-    # Gradient flow: bright warm yellow -> amber orange -> bright coral red -> rich crimson
-    banner.append("  ____  _____ ____  _  ______ ___ _     ___ _____ \n", style="bold #ffea79")
-    banner.append(" |  _ \\| ____/ ___|| |/ /  _ \\_ _| |   / _ \\_   _|\n", style="bold #f69d50")
-    banner.append(" | | | |  _| \\___ \\| ' /| |_) | || |  | | | || |  \n", style="bold #f85149")
-    banner.append(" | |_| | |___ ___) | . \\|  __/| || |__| |_| || |  \n", style="bold #da3633")
-    banner.append(" |____/|_____|____/|_|\\_\\_|  |___|_____\\___/ |_|  ", style="bold #b62324")
+    for row_idx, line in enumerate(logo_lines):
+        for col_idx, char in enumerate(line):
+            factor = col_idx / max(1, max_len - 1)
+            char_color = _interpolate(start_rgb, end_rgb, factor)
+            banner.append(char, style=f"bold {char_color}")
+        if row_idx < len(logo_lines) - 1:
+            banner.append("\n")
     return banner
 
 
@@ -212,7 +235,7 @@ class DeskPilotTUI(App):
         with Horizontal(id="top-header"):
             yield Static(render_logo_art(), id="logo-block")
             meta_text = Text()
-            meta_text.append("\n  Morning Command Center\n", style="bold #ffea79")
+            meta_text.append("\n  Dashboard Center\n", style="bold #ffea79")
             meta_text.append(f"  {time_str}\n", style="dim")
             meta_text.append("  Autonomous Local Multi-Agent Orchestrator", style="dim italic")
             yield Static(meta_text, id="meta-block")
