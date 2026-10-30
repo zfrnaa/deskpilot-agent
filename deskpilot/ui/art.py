@@ -35,7 +35,7 @@ WORDMARK_GAP = " "
 # Below this console width the wordmark is dropped in favour of one banner line.
 WORDMARK_MIN_WIDTH = 76
 
-TAGLINE = "DeskPilot Morning Command Center"
+TAGLINE = "DeskPilot Command Center"
 
 
 def wordmark_lines() -> list[str]:

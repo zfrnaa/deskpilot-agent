@@ -1,14 +1,14 @@
 """Textual Full-Screen Modern TUI Dashboard for DeskPilot.
 
 Matches the Bento-box visual concept mockup:
-- Top Header: Stylized ASCII/Block 'DESKPILOT' banner & date/time
+- Top Header: Warm Yellow-to-Red gradient stylized ASCII 'DESKPILOT' banner & date/time
 - Left Column:
     1. Agent Workflow Pipeline: Rounded pill cards with step connectors
     2. Curated Morning News Briefing: Real-time intelligence feed (full 5 headlines)
 - Right Column:
-    1. System Hygiene & Disk Metrics: Real-time drive space graph (used/free/freed) & temp stats
+    1. System Hygiene & Storage Metrics: Fixed height drive space graph & stats
     2. Daily Digest & Calendar: Timeline markers with priority chips
-    3. Package Updates: Version delta pills
+    3. Package Updates (winget): Always visible with dedicated vertical share
 - Bottom Command Dock: Interactive hotkey bar [1] Triage [2] Clean [3] Floorp [4] Winget [5] Notion [0] Exit
 """
 
@@ -50,8 +50,6 @@ Screen {
 
 #logo-block {
     width: auto;
-    color: #58a6ff;
-    text-style: bold;
 }
 
 #meta-block {
@@ -84,11 +82,11 @@ Screen {
 }
 
 .bento-card:focus {
-    border: round #58a6ff;
+    border: round #f69d50;
 }
 
 .card-title {
-    color: #58a6ff;
+    color: #ffea79;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -103,8 +101,7 @@ Screen {
 }
 
 #hygiene-card {
-    height: auto;
-    min-height: 7;
+    height: 7;
 }
 
 #calendar-card {
@@ -132,12 +129,12 @@ Screen {
 }
 
 .dock-chip {
-    color: #79c0ff;
+    color: #ffea79;
     text-style: bold;
 }
 
 .dock-exit {
-    color: #e3b341;
+    color: #f85149;
     text-style: bold;
 }
 
@@ -149,7 +146,7 @@ Screen {
 
 #prompt-symbol {
     width: auto;
-    color: #56d364;
+    color: #f69d50;
     text-style: bold;
     margin-right: 1;
 }
@@ -169,24 +166,25 @@ Screen {
 
 
 def render_logo_art() -> Text:
-    """Render stylized ASCII wordmark banner for DESKPILOT."""
+    """Render stylized ASCII wordmark banner with a yellow-to-red sunset flame gradient."""
     banner = Text()
-    banner.append("  ____  _____ ____  _  ______ ___ _     ___ _____ \n", style="bold #58a6ff")
-    banner.append(" |  _ \\| ____/ ___|| |/ /  _ \\_ _| |   / _ \\_   _|\n", style="bold #79c0ff")
-    banner.append(" | | | |  _| \\___ \\| ' /| |_) | || |  | | | || |  \n", style="bold #58a6ff")
-    banner.append(" | |_| | |___ ___) | . \\|  __/| || |__| |_| || |  \n", style="bold #388bfd")
-    banner.append(" |____/|_____|____/|_|\\_\\_|  |___|_____\\___/ |_|  ", style="bold #1f6feb")
+    # Gradient flow: bright warm yellow -> amber orange -> bright coral red -> rich crimson
+    banner.append("  ____  _____ ____  _  ______ ___ _     ___ _____ \n", style="bold #ffea79")
+    banner.append(" |  _ \\| ____/ ___|| |/ /  _ \\_ _| |   / _ \\_   _|\n", style="bold #f69d50")
+    banner.append(" | | | |  _| \\___ \\| ' /| |_) | || |  | | | || |  \n", style="bold #f85149")
+    banner.append(" | |_| | |___ ___) | . \\|  __/| || |__| |_| || |  \n", style="bold #da3633")
+    banner.append(" |____/|_____|____/|_|\\_\\_|  |___|_____\\___/ |_|  ", style="bold #b62324")
     return banner
 
 
 def render_arc_gauge(freed_str: str) -> Text:
-    """Render the compact circular arc gauge matching the concept mockup."""
+    """Render the compact circular arc gauge matching the sunset flame concept."""
     t = Text()
-    t.append(" ╭──────╮\n", style="bold #79c0ff")
-    t.append(" │", style="bold #79c0ff")
+    t.append(" ╭──────╮\n", style="bold #ffea79")
+    t.append(" │", style="bold #ffea79")
     t.append(f"{freed_str:^6}", style="bold #ffffff")
-    t.append("│\n", style="bold #79c0ff")
-    t.append(" ╰Freed─╯", style="bold #58a6ff")
+    t.append("│\n", style="bold #f69d50")
+    t.append(" ╰Freed─╯", style="bold #f85149")
     return t
 
 
@@ -210,11 +208,11 @@ class DeskPilotTUI(App):
         """Compose the full Bento dashboard."""
         time_str = self.state.timestamp.strftime("%A, %B %d, %Y - %I:%M %p")
 
-        # 1. Big DeskPilot Wordmark Header + Metadata
+        # 1. Warm Yellow-to-Red Gradient DeskPilot Header + Metadata
         with Horizontal(id="top-header"):
             yield Static(render_logo_art(), id="logo-block")
             meta_text = Text()
-            meta_text.append("\n  Morning Command Center\n", style="bold #58a6ff")
+            meta_text.append("\n  Morning Command Center\n", style="bold #ffea79")
             meta_text.append(f"  {time_str}\n", style="dim")
             meta_text.append("  Autonomous Local Multi-Agent Orchestrator", style="dim italic")
             yield Static(meta_text, id="meta-block")
@@ -227,8 +225,8 @@ class DeskPilotTUI(App):
                     yield Static("Agent Workflow Pipeline", classes="card-title")
                     pipe_text = Text()
                     pipe_text.append("[ ● Ingest Watcher ]", style="bold #56d364")
-                    pipe_text.append(" ──→ ", style="bold #58a6ff")
-                    pipe_text.append("[ ◎ Vision Triage ]", style="bold #79c0ff")
+                    pipe_text.append(" ──→ ", style="bold #f69d50")
+                    pipe_text.append("[ ◎ Vision Triage ]", style="bold #ffea79")
                     pipe_text.append(" ──→ ", style="dim")
                     pipe_text.append("[ ○ Notion Sync ]", style="dim")
                     pipe_text.append("\n▸ Orchestrator active. Awaiting manual trigger or scheduled queue.", style="dim")
@@ -240,8 +238,8 @@ class DeskPilotTUI(App):
                     news_text = Text()
                     if mn and isinstance(mn, NewsDigestResult) and mn.headlines:
                         for item in mn.headlines[:5]:
-                            news_text.append(" ◆ ", style="bold #e3b341")
-                            news_text.append(f"[{item.topic}] ", style="bold #d2a8ff")
+                            news_text.append(" ◆ ", style="bold #ffea79")
+                            news_text.append(f"[{item.topic}] ", style="bold #f69d50")
                             news_text.append(f"{item.title} ", style="bold #ffffff")
                             if item.source:
                                 news_text.append(f"via {item.source} ", style="dim")
@@ -289,10 +287,10 @@ class DeskPilotTUI(App):
                         hyg_table.append("Cleaned: 0 files • 0 dirs (0 B)\n", style="dim")
                         gauge_freed = "0 B"
 
-                    # Add Storage Space Gauge Graph
+                    # Storage Space Gauge Graph
                     hyg_table.append("Disk:   ", style="dim")
-                    hyg_table.append(f"[{bar_str}] ", style="bold #79c0ff")
-                    bar_color = "#56d364" if pct_used < 75 else ("#e3b341" if pct_used < 90 else "#f85149")
+                    hyg_table.append(f"[{bar_str}] ", style="bold #f69d50")
+                    bar_color = "#56d364" if pct_used < 75 else ("#ffea79" if pct_used < 90 else "#f85149")
                     hyg_table.append(f"{pct_used}% used\n", style=f"bold {bar_color}")
                     hyg_table.append("Space:  ", style="dim")
                     hyg_table.append(f"{free_str} free ", style="bold #56d364")
@@ -312,13 +310,13 @@ class DeskPilotTUI(App):
                         cal_text.append("● Calendar error: ", style="bold #f85149")
                         cal_text.append(f"{ca.error}\n", style="dim")
                     elif not ca.is_configured:
-                        cal_text.append("● Token unconfigured / Auth required\n", style="bold #e3b341")
+                        cal_text.append("● Token unconfigured / Auth required\n", style="bold #ffea79")
                         cal_text.append("Re-authorize in browser via settings.\n", style="dim")
                     elif ca.events:
                         cal_text.append(f"Timeline Schedule ({ca.date_str or 'Today'}):\n", style="dim")
                         for ev in ca.events[:3]:
                             time_chip = f"[{ev.start_time} - {ev.end_time}]" if not ev.is_all_day else "[All Day]"
-                            cal_text.append(f" • {time_chip} ", style="bold #79c0ff")
+                            cal_text.append(f" • {time_chip} ", style="bold #f69d50")
                             cal_text.append(f"{ev.summary}\n", style="#ffffff")
                     else:
                         cal_text.append("● Clear Schedule\n", style="bold #56d364")
@@ -332,13 +330,13 @@ class DeskPilotTUI(App):
                     if wu is None or not isinstance(wu, WingetUpdateResult):
                         wu_text.append("○ Check not executed / Disabled\n", style="dim")
                     elif wu.timed_out:
-                        wu_text.append("● Query timed out\n", style="bold #e3b341")
+                        wu_text.append("● Query timed out\n", style="bold #ffea79")
                         wu_text.append("Run winget upgrade manually.\n", style="dim")
                     elif wu.error:
                         wu_text.append("● Check failed: ", style="bold #f85149")
                         wu_text.append(f"{wu.error}\n", style="dim")
                     elif wu.total_count > 0:
-                        wu_text.append(f"● {wu.total_count} Updates Pending\n", style="bold #e3b341")
+                        wu_text.append(f"● {wu.total_count} Updates Pending\n", style="bold #ffea79")
                         for item in wu.updates[:4]:
                             wu_text.append(f" ▸ {item.name} ", style="bold #ffffff")
                             wu_text.append(f"({item.version} → ", style="dim")

@@ -525,7 +525,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for DeskPilot CLI."""
     parser = argparse.ArgumentParser(
         prog="deskpilot",
-        description="DeskPilot Morning Command Center and Boot Orchestrator",
+        description="DeskPilot Command Center and Boot Orchestrator",
     )
     parser.add_argument(
         "--startup",
