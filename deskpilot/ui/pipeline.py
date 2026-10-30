@@ -56,7 +56,7 @@ def render_pipeline(
 
     panel_body = Text("\n").join(content) if len(content) > 1 else content[0]
 
-    return theme.panel(
+    return theme.card_panel(
         panel_body,
         title,
         "cyan",

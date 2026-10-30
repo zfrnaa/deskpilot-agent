@@ -70,6 +70,20 @@ GLYPH_EMPTY_BAR = "\u2591"
 PANEL_BOX = box.ROUNDED
 PANEL_STYLE = f"on {BG}"
 
+
+def card_panel(content, title: str, border: str, icon: str = "") -> Panel:
+    """Build an inner card panel without a solid background block, blending cleanly into the window."""
+    if icon and not supports_glyphs():
+        icon = ""
+    label = f"{icon} {title}" if icon else title
+    return Panel(
+        content,
+        title=f"[bold {border}]{label}[/bold {border}]",
+        border_style=border,
+        box=PANEL_BOX,
+        style="none",
+    )
+
 # --- Theme -----------------------------------------------------------------
 # Rich looks up the *whole* tag string ("bold cyan"), not the bare colour, so
 # every markup variant used by the CLI must be registered explicitly. This is

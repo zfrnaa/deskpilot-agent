@@ -172,7 +172,7 @@ def _render_progress_bar(percent: float, width: int = 14, unicode_ok: bool = Tru
 def _create_hygiene_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     """Build the Bento-styled Rich panel for System Hygiene (%TEMP% cleaner)."""
     if state.system_hygiene is None or not isinstance(state.system_hygiene, TempCleanResult):
-        return ui_theme.panel(
+        return ui_theme.card_panel(
             Text("Cleaner not executed or disabled", style="dim"),
             "System Hygiene (%TEMP%)",
             "cyan",
@@ -197,7 +197,7 @@ def _create_hygiene_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     if sh.errors:
         lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] [dim]{sh.errors[0]}[/dim]")
 
-    return ui_theme.panel(
+    return ui_theme.card_panel(
         "\n".join(lines),
         "System Hygiene (%TEMP%)",
         "cyan",
@@ -208,7 +208,7 @@ def _create_hygiene_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 def _create_bookmarks_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     """Build the Bento-styled Rich panel for Floorp browser bookmarks audit."""
     if state.floorp_bookmarks is None or not isinstance(state.floorp_bookmarks, BookmarkAuditResult):
-        return ui_theme.panel(
+        return ui_theme.card_panel(
             Text("Audit not executed or disabled", style="dim"),
             "Floorp Bookmarks",
             "magenta",
@@ -230,7 +230,7 @@ def _create_bookmarks_panel(state: BootState, unicode_ok: bool = True) -> Panel:
         ]
         content = "\n".join(lines)
 
-    return ui_theme.panel(
+    return ui_theme.card_panel(
         content,
         "Floorp Bookmarks",
         "magenta",
@@ -241,7 +241,7 @@ def _create_bookmarks_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     """Build the Bento-styled Rich panel for winget package updates."""
     if state.winget_updates is None or not isinstance(state.winget_updates, WingetUpdateResult):
-        return ui_theme.panel(
+        return ui_theme.card_panel(
             Text("Check not executed or disabled", style="dim"),
             "Package Updates (winget)",
             "blue",
@@ -273,7 +273,7 @@ def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
             lines.append(f"   [dim]... and {len(wu.updates) - 4} more updates pending[/dim]")
         content = "\n".join(lines)
 
-    return ui_theme.panel(
+    return ui_theme.card_panel(
         content,
         "Package Updates (winget)",
         "blue",
@@ -284,7 +284,7 @@ def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 def _create_calendar_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     """Build the Bento-styled Rich panel for Google Calendar today's agenda."""
     if state.calendar_agenda is None or not isinstance(state.calendar_agenda, CalendarAgendaResult):
-        return ui_theme.panel(
+        return ui_theme.card_panel(
             Text("Agenda not fetched or disabled", style="dim"),
             "Today's Agenda (Google Calendar)",
             "green",
@@ -312,7 +312,7 @@ def _create_calendar_panel(state: BootState, unicode_ok: bool = True) -> Panel:
             lines.append(f"   [dim]... and {len(ca.events) - 5} more upcoming[/dim]")
         content = "\n".join(lines)
 
-    return ui_theme.panel(
+    return ui_theme.card_panel(
         content,
         "Today's Agenda (Google Calendar)",
         "green",
@@ -326,7 +326,7 @@ def _create_news_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 
     mn = getattr(state, "morning_news", None)
     if mn is None or not isinstance(mn, NewsDigestResult) or not mn.headlines:
-        return ui_theme.panel(
+        return ui_theme.card_panel(
             Text("No news headlines fetched or offline", style="dim"),
             "Morning Briefing (Top Headlines)",
             "yellow",
@@ -340,13 +340,13 @@ def _create_news_panel(state: BootState, unicode_ok: bool = True) -> Panel:
         f"[dim]Intelligence Feed:[/dim] [bold yellow]{dot} Live[/bold yellow]  [dim]Curated:[/dim] [bold white]{len(mn.headlines)} stories[/bold white]",
         "",
     ]
-    for item in mn.headlines[:4]:
+    for item in mn.headlines[:5]:
         badge = f"[bold magenta]{item.topic}[/bold magenta]"
         src = f" [dim]via {item.source}[/dim]" if item.source else ""
         link_str = f" [link={item.link}][dim underline]open[/dim underline][/link]" if item.link else ""
         lines.append(f" [yellow]{diamond}[/yellow] [{badge}] [bold]{item.title}[/bold]{src}{link_str}")
 
-    return ui_theme.panel(
+    return ui_theme.card_panel(
         "\n".join(lines),
         "Morning Briefing (Top Headlines)",
         "yellow",
@@ -399,9 +399,8 @@ def render_dashboard(
     # --- Two-column Bento Grid Layout ---
     # Left column: Workflow Pipeline Status + Morning News Feed + (optional) Floorp Bookmarks
     # Right column: System Hygiene + Today's Agenda + Package Updates
-    grid = Table.grid(expand=True, padding=(0, 1))
-    grid.add_column("left", ratio=5)
-    grid.add_column("right", ratio=5)
+    left_table = Table.grid(expand=True, padding=(0, 0))
+    right_table = Table.grid(expand=True, padding=(0, 0))
 
     from deskpilot.ui.pipeline import render_pipeline
 
@@ -413,21 +412,21 @@ def render_dashboard(
         title="Agent Workflow Pipeline",
     )
 
-    left_cards = [pipeline_card]
+    left_table.add_row(pipeline_card)
     if getattr(state, "morning_news", None) is not None:
-        left_cards.append(_create_news_panel(state, unicode_ok=unicode_ok))
+        left_table.add_row(_create_news_panel(state, unicode_ok=unicode_ok))
     if state.bookmarks is not None:
-        left_cards.append(_create_bookmarks_panel(state, unicode_ok=unicode_ok))
+        left_table.add_row(_create_bookmarks_panel(state, unicode_ok=unicode_ok))
 
     # Right column stack
-    right_cards = [hygiene_panel, calendar_panel, winget_panel]
+    right_table.add_row(hygiene_panel)
+    right_table.add_row(calendar_panel)
+    right_table.add_row(winget_panel)
 
-    # Combine into paired rows
-    max_rows = max(len(left_cards), len(right_cards))
-    for r_idx in range(max_rows):
-        left_item = left_cards[r_idx] if r_idx < len(left_cards) else Text("")
-        right_item = right_cards[r_idx] if r_idx < len(right_cards) else Text("")
-        grid.add_row(left_item, right_item)
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column("left", ratio=5)
+    grid.add_column("right", ratio=5)
+    grid.add_row(left_table, right_table)
 
     c.print(grid)
 
@@ -502,7 +501,7 @@ def prompt_action_menu(
     )
 
     c.print(
-        ui_theme.panel(
+        ui_theme.card_panel(
             menu_table,
             "Action Menu",
             "green",
