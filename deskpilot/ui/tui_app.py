@@ -284,11 +284,11 @@ class DeskPilotTUI(App):
             self.exit(result=int(key))
 
 
-def run_tui_dashboard(
+async def run_tui_dashboard(
     state: BootState | None = None,
     settings: Settings | None = None,
 ) -> int:
-    """Run the modern Textual full-screen dashboard."""
+    """Run the modern Textual full-screen dashboard inside an existing asyncio event loop."""
     app = DeskPilotTUI(state=state, settings=settings)
-    result = app.run()
+    result = await app.run_async()
     return result if isinstance(result, int) else 0

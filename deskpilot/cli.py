@@ -1164,7 +1164,7 @@ async def main_async(
             if use_tui and not startup:
                 from deskpilot.ui.tui_app import run_tui_dashboard
 
-                tui_choice = run_tui_dashboard(state=state, settings=settings)
+                tui_choice = await run_tui_dashboard(state=state, settings=settings)
                 choice = str(tui_choice)
             else:
                 choice = prompt_action_menu(console=c, prompt_func=prompt_func, voice_enabled=voice_active)
