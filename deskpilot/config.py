@@ -212,6 +212,12 @@ class MappedSettingsSource(PydanticBaseSettingsSource):
         return data
 
 
+class NewsConfig(BaseModel):
+    """Configuration for morning news digest."""
+
+    enabled: bool = False
+
+
 class Settings(BaseSettings):
     """Global configuration settings for DeskPilot."""
 
@@ -232,6 +238,7 @@ class Settings(BaseSettings):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    news: NewsConfig = Field(default_factory=NewsConfig)
 
     # Top-level API keys and telemetry settings
     gemini_api_key: str = ""

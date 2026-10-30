@@ -101,20 +101,28 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
             sink.finish(label)
         return result
 
-    results = await asyncio.gather(
+    # Execute Phase 1 tasks concurrently via asyncio.gather
+    boot_coros: list[Any] = [
         _tracked(BOOT_TASK_LABELS[0], clean_temp_directory(config=settings.temp_cleaner)),
         _tracked(BOOT_TASK_LABELS[1], check_winget_updates(config=settings.winget)),
         _tracked(BOOT_TASK_LABELS[2], fetch_today_agenda(config=settings.calendar)),
-        return_exceptions=True,
-    )
+    ]
 
-    # Fetch curated morning news in parallel or right after boot tasks
-    from deskpilot.boot_tasks.news_digest import fetch_morning_news
+    news_enabled = getattr(settings, "news", None) and settings.news.enabled
+    if news_enabled:
+        from deskpilot.boot_tasks.news_digest import fetch_morning_news
+        boot_coros.append(fetch_morning_news(enabled=True))
 
-    temp_res, winget_res, cal_res = results
-    try:
-        state.morning_news = await fetch_morning_news(enabled=True)
-    except Exception:
+    results = await asyncio.gather(*boot_coros, return_exceptions=True)
+
+    if news_enabled:
+        temp_res, winget_res, cal_res, news_res = results
+        if isinstance(news_res, Exception):
+            state.morning_news = None
+        else:
+            state.morning_news = news_res
+    else:
+        temp_res, winget_res, cal_res = results
         state.morning_news = None
 
     # 1. System hygiene
@@ -151,8 +159,18 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     return state
 
 
-def _create_hygiene_panel(state: BootState) -> Panel:
-    """Build the Rich panel for System Hygiene (%TEMP% cleaner)."""
+def _render_progress_bar(percent: float, width: int = 14, unicode_ok: bool = True) -> str:
+    """Render a sleek mini bar with filled blocks and empty dots or ASCII equivalents."""
+    filled_len = max(0, min(width, round(width * (percent / 100.0))))
+    empty_len = width - filled_len
+    block_char = ui_theme.GLYPH_BLOCK if unicode_ok else "#"
+    empty_char = ui_theme.GLYPH_EMPTY_BAR if unicode_ok else "-"
+    bar = block_char * filled_len + empty_char * empty_len
+    return f"[bold green]{bar}[/bold green]"
+
+
+def _create_hygiene_panel(state: BootState, unicode_ok: bool = True) -> Panel:
+    """Build the Bento-styled Rich panel for System Hygiene (%TEMP% cleaner)."""
     if state.system_hygiene is None or not isinstance(state.system_hygiene, TempCleanResult):
         return ui_theme.panel(
             Text("Cleaner not executed or disabled", style="dim"),
@@ -162,13 +180,22 @@ def _create_hygiene_panel(state: BootState) -> Panel:
         )
 
     sh: TempCleanResult = state.system_hygiene
+    freed_str = format_bytes(sh.bytes_freed)
+
+    clean_pct = min(100.0, max(15.0, (sh.bytes_freed / (50 * 1024 * 1024)) * 100.0)) if sh.bytes_freed > 0 else 100.0
+    bar_str = _render_progress_bar(clean_pct, width=12, unicode_ok=unicode_ok)
+    dot = ui_theme.GLYPH_DOT if unicode_ok else "*"
+
+    sep = "•" if unicode_ok else "|"
+
     lines: list[str] = [
-        f"[bold]Bytes Freed:[/bold] [green]{format_bytes(sh.bytes_freed)}[/green]",
-        f"[bold]Files Removed:[/bold] {sh.files_removed}",
-        f"[bold]Dirs Removed:[/bold] {sh.dirs_removed}",
+        f"[dim]Status:[/dim] [bold green]{dot} Cleared[/bold green]  [dim]Storage freed:[/dim] [bold bright_blue]{freed_str}[/bold bright_blue]",
+        f"[dim]Hygiene Index:[/dim] {bar_str} [dim]({clean_pct:.0f}%)[/dim]",
+        "",
+        f"[dim]Items Purged:[/dim] [bold cyan]{sh.files_removed}[/bold cyan] [dim]files[/dim] {sep} [bold cyan]{sh.dirs_removed}[/bold cyan] [dim]dirs[/dim]",
     ]
     if sh.errors:
-        lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] {sh.errors[0]}")
+        lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] [dim]{sh.errors[0]}[/dim]")
 
     return ui_theme.panel(
         "\n".join(lines),
@@ -178,8 +205,8 @@ def _create_hygiene_panel(state: BootState) -> Panel:
     )
 
 
-def _create_bookmarks_panel(state: BootState) -> Panel:
-    """Build the Rich panel for Floorp browser bookmarks audit."""
+def _create_bookmarks_panel(state: BootState, unicode_ok: bool = True) -> Panel:
+    """Build the Bento-styled Rich panel for Floorp browser bookmarks audit."""
     if state.floorp_bookmarks is None or not isinstance(state.floorp_bookmarks, BookmarkAuditResult):
         return ui_theme.panel(
             Text("Audit not executed or disabled", style="dim"),
@@ -192,12 +219,14 @@ def _create_bookmarks_panel(state: BootState) -> Panel:
     if fb.error:
         content = f"[yellow]{fb.error}[/yellow]"
     else:
-        noisy_style = "yellow" if fb.noisy_count > 0 else "green"
-        dup_style = "yellow" if fb.duplicate_groups_count > 0 else "green"
+        dot = ui_theme.GLYPH_DOT if unicode_ok else "*"
+        noisy_badge = f"[bold green]0[/bold green]" if fb.noisy_count == 0 else f"[bold yellow]{fb.noisy_count}[/bold yellow]"
+        dup_badge = f"[bold green]0[/bold green]" if fb.duplicate_groups_count == 0 else f"[bold yellow]{fb.duplicate_groups_count}[/bold yellow]"
         lines = [
-            f"[bold]Total Bookmarks:[/bold] {fb.total_bookmarks}",
-            f"[bold]Noisy URLs (Tracking):[/bold] [{noisy_style}]{fb.noisy_count}[/{noisy_style}]",
-            f"[bold]Duplicate Groups:[/bold] [{dup_style}]{fb.duplicate_groups_count}[/{dup_style}]",
+            f"[dim]Audit Status:[/dim] [bold green]{dot} Synced[/bold green]  [dim]Total Bookmarks:[/dim] [bold magenta]{fb.total_bookmarks}[/bold magenta]",
+            "",
+            f"[dim]Tracking Parameters:[/dim] {noisy_badge} [dim]noisy URLs detected[/dim]",
+            f"[dim]Duplicate Clusters:[/dim]  {dup_badge} [dim]duplicate groups[/dim]",
         ]
         content = "\n".join(lines)
 
@@ -209,8 +238,8 @@ def _create_bookmarks_panel(state: BootState) -> Panel:
     )
 
 
-def _create_winget_panel(state: BootState) -> Panel:
-    """Build the Rich panel for winget package updates."""
+def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
+    """Build the Bento-styled Rich panel for winget package updates."""
     if state.winget_updates is None or not isinstance(state.winget_updates, WingetUpdateResult):
         return ui_theme.panel(
             Text("Check not executed or disabled", style="dim"),
@@ -220,18 +249,28 @@ def _create_winget_panel(state: BootState) -> Panel:
         )
 
     wu: WingetUpdateResult = state.winget_updates
+    dot = ui_theme.GLYPH_DOT if unicode_ok else "*"
+    arrow = "->" if not unicode_ok else "→"
+    bullet = ui_theme.GLYPH_PROMPT if unicode_ok else ">"
+
     if wu.timed_out:
         content = "[yellow]Query timed out. Run manually if needed.[/yellow]"
     elif wu.error:
         content = f"[yellow]{wu.error}[/yellow]"
     elif wu.total_count == 0:
-        content = "[bold green]All packages up to date![/bold green]"
+        content = (
+            f"[bold green]{dot} Up to date[/bold green]\n\n"
+            "[dim]All local software packages and dependencies are on their latest release.[/dim]"
+        )
     else:
-        lines = [f"[bold yellow]{wu.total_count} update(s) available:[/bold yellow]"]
-        for item in wu.updates[:5]:
-            lines.append(f"• {item.name} ([dim]{item.version}[/dim] -> [cyan]{item.available_version}[/cyan])")
-        if len(wu.updates) > 5:
-            lines.append(f"[dim]... and {len(wu.updates) - 5} more[/dim]")
+        lines = [
+            f"[dim]Status:[/dim] [bold yellow]{dot} Updates Pending[/bold yellow]  [dim]Available:[/dim] [bold yellow]{wu.total_count}[/bold yellow] [dim]package(s)[/dim]",
+            "",
+        ]
+        for item in wu.updates[:4]:
+            lines.append(f" [cyan]{bullet}[/cyan] [bold]{item.name}[/bold] [dim]({item.version} {arrow} [green]{item.available_version}[/green])[/dim]")
+        if len(wu.updates) > 4:
+            lines.append(f"   [dim]... and {len(wu.updates) - 4} more updates pending[/dim]")
         content = "\n".join(lines)
 
     return ui_theme.panel(
@@ -242,8 +281,8 @@ def _create_winget_panel(state: BootState) -> Panel:
     )
 
 
-def _create_calendar_panel(state: BootState) -> Panel:
-    """Build the Rich panel for Google Calendar today's agenda."""
+def _create_calendar_panel(state: BootState, unicode_ok: bool = True) -> Panel:
+    """Build the Bento-styled Rich panel for Google Calendar today's agenda."""
     if state.calendar_agenda is None or not isinstance(state.calendar_agenda, CalendarAgendaResult):
         return ui_theme.panel(
             Text("Agenda not fetched or disabled", style="dim"),
@@ -253,20 +292,24 @@ def _create_calendar_panel(state: BootState) -> Panel:
         )
 
     ca: CalendarAgendaResult = state.calendar_agenda
+    dot = ui_theme.GLYPH_DOT if unicode_ok else "*"
+    arrow = "->" if not unicode_ok else "→"
+
     if ca.error:
         content = f"[yellow]{ca.error}[/yellow]"
     elif not ca.is_configured:
         content = "[dim]Calendar not configured (token/credentials missing)[/dim]"
     elif not ca.events:
-        content = f"[green]No events scheduled for today ({ca.date_str or 'today'})[/green]"
+        content = f"[bold green]{dot} Clear Schedule[/bold green]\n\n[dim]No meetings or events scheduled for today ({ca.date_str or 'today'}).[/dim]"
     else:
-        lines = [f"[bold]{ca.total_count} event(s) scheduled ({ca.date_str}):[/bold]"]
+        date_header = f"[dim]Date:[/dim] [bold white]{ca.date_str}[/bold white]  [dim]Events:[/dim] [bold green]{ca.total_count}[/bold green]"
+        lines = [date_header, ""]
         for ev in ca.events[:5]:
-            time_badge = "[All Day]" if ev.is_all_day else f"[{ev.start_time} - {ev.end_time}]"
-            loc = f" ({ev.location})" if ev.location else ""
-            lines.append(f"• [cyan]{time_badge}[/cyan] {ev.summary}{loc}")
+            time_badge = "[bold cyan][All Day][/bold cyan]" if ev.is_all_day else f"[bold cyan]{ev.start_time}[/bold cyan] [dim]{arrow} {ev.end_time}[/dim]"
+            loc = f" [dim]({ev.location})[/dim]" if ev.location else ""
+            lines.append(f" [green]{dot}[/green] {time_badge}  [bold]{ev.summary}[/bold]{loc}")
         if len(ca.events) > 5:
-            lines.append(f"[dim]... and {len(ca.events) - 5} more[/dim]")
+            lines.append(f"   [dim]... and {len(ca.events) - 5} more upcoming[/dim]")
         content = "\n".join(lines)
 
     return ui_theme.panel(
@@ -277,8 +320,8 @@ def _create_calendar_panel(state: BootState) -> Panel:
     )
 
 
-def _create_news_panel(state: BootState) -> Panel:
-    """Build the Rich panel for top curated morning news headlines."""
+def _create_news_panel(state: BootState, unicode_ok: bool = True) -> Panel:
+    """Build the Bento-styled Rich panel for top curated morning news headlines."""
     from deskpilot.boot_tasks.news_digest import NewsDigestResult
 
     mn = getattr(state, "morning_news", None)
@@ -290,12 +333,18 @@ def _create_news_panel(state: BootState) -> Panel:
             "[NEWS]",
         )
 
-    lines: list[str] = []
-    for item in mn.headlines[:5]:
-        badge = f"[bold cyan][{item.topic}][/bold cyan]"
-        src = f" [dim]({item.source})[/dim]" if item.source else ""
-        link_str = f" [link={item.link}][dim underline]link[/dim underline][/link]" if item.link else ""
-        lines.append(f"• {badge} {item.title}{src}{link_str}")
+    dot = ui_theme.GLYPH_DOT if unicode_ok else "*"
+    diamond = ui_theme.GLYPH_DIAMOND if unicode_ok else "*"
+
+    lines: list[str] = [
+        f"[dim]Intelligence Feed:[/dim] [bold yellow]{dot} Live[/bold yellow]  [dim]Curated:[/dim] [bold white]{len(mn.headlines)} stories[/bold white]",
+        "",
+    ]
+    for item in mn.headlines[:4]:
+        badge = f"[bold magenta]{item.topic}[/bold magenta]"
+        src = f" [dim]via {item.source}[/dim]" if item.source else ""
+        link_str = f" [link={item.link}][dim underline]open[/dim underline][/link]" if item.link else ""
+        lines.append(f" [yellow]{diamond}[/yellow] [{badge}] [bold]{item.title}[/bold]{src}{link_str}")
 
     return ui_theme.panel(
         "\n".join(lines),
@@ -342,16 +391,17 @@ def render_dashboard(
             f"[dim]{icon}LangSmith Tracing: [green]Active[/green] (Project: {project}) [link={url}]{url}[/link][/dim]"
         )
 
-    hygiene_panel = _create_hygiene_panel(state)
-    winget_panel = _create_winget_panel(state)
-    calendar_panel = _create_calendar_panel(state)
+    unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
+    hygiene_panel = _create_hygiene_panel(state, unicode_ok=unicode_ok)
+    winget_panel = _create_winget_panel(state, unicode_ok=unicode_ok)
+    calendar_panel = _create_calendar_panel(state, unicode_ok=unicode_ok)
 
     if state.bookmarks is not None:
         # If bookmarks have been audited (e.g. on-demand via option [3]), render 2x2 grid
         grid = Table.grid(expand=True, padding=(0, 1))
         grid.add_column(ratio=1)
         grid.add_column(ratio=1)
-        bookmarks_panel = _create_bookmarks_panel(state)
+        bookmarks_panel = _create_bookmarks_panel(state, unicode_ok=unicode_ok)
         grid.add_row(hygiene_panel, bookmarks_panel)
         grid.add_row(winget_panel, calendar_panel)
         c.print(grid)
@@ -364,7 +414,7 @@ def render_dashboard(
         c.print(grid)
         c.print(calendar_panel)
         if getattr(state, "morning_news", None) is not None:
-            c.print(_create_news_panel(state))
+            c.print(_create_news_panel(state, unicode_ok=unicode_ok))
 
     # Error panel if any errors were recorded during boot
     if state.has_errors():

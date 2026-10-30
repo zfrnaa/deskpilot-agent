@@ -62,6 +62,9 @@ GLYPH_DONE = "\u2714"
 GLYPH_FAILED = "\u2718"
 SPINNER_FRAMES = "\u280B\u2819\u2839\u2838\u283C\u2834\u2826\u2827\u2807\u280F"
 GLYPH_BLOCK = "\u2588"
+GLYPH_DOT = "\u25CF"
+GLYPH_DIAMOND = "\u25C6"
+GLYPH_EMPTY_BAR = "\u2591"
 
 # --- Panel chrome ----------------------------------------------------------
 PANEL_BOX = box.ROUNDED
