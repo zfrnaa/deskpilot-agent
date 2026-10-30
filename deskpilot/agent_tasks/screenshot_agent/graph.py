@@ -173,11 +173,17 @@ def human_review_node(
     # Interactive console review
     approved_clusters: list[str] = []
     try:
+        from rich.box import ROUNDED
         from rich.console import Console
         from rich.table import Table
 
         console = Console()
-        table = Table(title="[bold cyan]Screenshot Triage Clusters[/bold cyan]")
+        table = Table(
+            title="[bold cyan]Screenshot Triage Clusters[/bold cyan]",
+            box=ROUNDED,
+            border_style="cyan",
+            header_style="bold cyan",
+        )
         table.add_column("Cluster Tag", style="cyan", width=20)
         table.add_column("Total Items", justify="right", style="green", width=12)
         table.add_column("Notion Syncable", justify="right", style="yellow", width=12)

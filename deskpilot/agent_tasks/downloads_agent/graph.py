@@ -78,11 +78,17 @@ def human_review_node(
         return {"approved_actions": []}
 
     try:
+        from rich.box import ROUNDED
         from rich.console import Console
         from rich.table import Table
 
         console = Console()
-        table = Table(title="[bold cyan]Downloads Hygiene Proposed Actions[/bold cyan]")
+        table = Table(
+            title="[bold cyan]Downloads Hygiene Proposed Actions[/bold cyan]",
+            box=ROUNDED,
+            border_style="cyan",
+            header_style="bold cyan",
+        )
         table.add_column("Category Key", style="cyan", width=22)
         table.add_column("Action", style="bold magenta", width=12)
         table.add_column("Files", justify="right", style="green", width=8)

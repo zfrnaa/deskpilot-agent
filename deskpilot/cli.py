@@ -12,6 +12,7 @@ from typing import Any
 
 import langsmith
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -947,17 +948,24 @@ async def execute_menu_action(
                     updates = wu_res.updates
 
             if updates:
-                pkg_table = Table(title=f"Available Updates ({len(updates)})", show_header=True)
+                pkg_table = Table(
+                    title="Available Updates",
+                    show_header=True,
+                    box=box.ROUNDED,
+                    border_style="cyan",
+                    header_style="bold cyan",
+                )
                 pkg_table.add_column("Package Name", style="white", ratio=2)
                 pkg_table.add_column("Package Id", style="cyan", ratio=2)
                 pkg_table.add_column("Current Version", style="dim", ratio=1)
-                pkg_table.add_column("Available Version", style="green", ratio=1)
+                pkg_table.add_column("Available Version", style="bold green", ratio=1)
                 for item in updates:
                     pkg_table.add_row(item.name, item.id, item.version, item.available_version)
                 c.print(pkg_table)
 
+                prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
                 ans = (
-                    prompt_func("Do you want to proceed with upgrading packages? [y/N]: ")
+                    prompt_func(f"{prompt_glyph} Do you want to proceed with upgrading packages? [y/N]: ")
                     .strip()
                     .lower()
                 )
