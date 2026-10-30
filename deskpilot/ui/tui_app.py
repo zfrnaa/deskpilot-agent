@@ -36,14 +36,13 @@ Screen {
     background: #0d1117;
     color: #c9d1d9;
     layout: vertical;
-    padding: 1 2;
+    padding: 0 1;
 }
 
 #top-bar {
-    height: 3;
+    height: 2;
     layout: horizontal;
     align: left middle;
-    margin-bottom: 1;
 }
 
 #logo-title {
@@ -69,19 +68,17 @@ Screen {
     width: 54%;
     margin-right: 1;
     layout: vertical;
-    overflow-y: auto;
 }
 
 #right-column {
     width: 46%;
     layout: vertical;
-    overflow-y: auto;
 }
 
 .bento-card {
     border: round #30363d;
     background: #161b22;
-    padding: 1 2;
+    padding: 0 1;
     margin-bottom: 1;
 }
 
@@ -92,33 +89,34 @@ Screen {
 .card-title {
     color: #58a6ff;
     text-style: bold;
-    margin-bottom: 1;
+    margin-bottom: 0;
 }
 
 #pipeline-card {
-    height: 7;
+    height: 5;
 }
 
 #news-card {
     height: 1fr;
+    overflow-y: auto;
 }
 
 #hygiene-card {
-    height: 9;
+    height: 6;
 }
 
 #calendar-card {
-    height: 9;
+    height: 6;
 }
 
 #winget-card {
     height: 1fr;
+    overflow-y: auto;
 }
 
 #dock-container {
-    height: 5;
+    height: 4;
     border-top: solid #30363d;
-    padding-top: 1;
 }
 
 #chips-row {
@@ -142,10 +140,9 @@ Screen {
 }
 
 #input-row {
-    height: 3;
+    height: 2;
     layout: horizontal;
     align: left middle;
-    margin-top: 1;
 }
 
 #prompt-symbol {
@@ -170,16 +167,16 @@ Screen {
 
 
 def render_arc_gauge(freed_str: str) -> Text:
-    """Render the circular/semi-circular arc gauge matching the concept mockup."""
-    #   ╭──────────╮
-    #   │  1.2 GB  │
-    #   ╰──Freed───╯
+    """Render the compact circular arc gauge matching the concept mockup."""
+    #   ╭────────╮
+    #   │15.0 MB │
+    #   ╰─Freed──╯
     t = Text()
-    t.append("   ╭──────────╮\n", style="bold #79c0ff")
-    t.append("   │ ", style="bold #79c0ff")
-    t.append(f"{freed_str:^8}", style="bold #ffffff")
-    t.append(" │\n", style="bold #79c0ff")
-    t.append("   ╰──Freed───╯", style="bold #58a6ff")
+    t.append(" ╭──────╮\n", style="bold #79c0ff")
+    t.append(" │", style="bold #79c0ff")
+    t.append(f"{freed_str:^6}", style="bold #ffffff")
+    t.append("│\n", style="bold #79c0ff")
+    t.append(" ╰Freed─╯", style="bold #58a6ff")
     return t
 
 
@@ -216,11 +213,11 @@ class DeskPilotTUI(App):
                     yield Static("Agent Workflow Pipeline", classes="card-title")
                     pipe_text = Text()
                     pipe_text.append("[ ● Ingest Watcher ]", style="bold #56d364")
-                    pipe_text.append(" ───→ ", style="bold #58a6ff")
+                    pipe_text.append(" ──→ ", style="bold #58a6ff")
                     pipe_text.append("[ ◎ Vision Triage ]", style="bold #79c0ff")
-                    pipe_text.append(" ───→ ", style="dim")
+                    pipe_text.append(" ──→ ", style="dim")
                     pipe_text.append("[ ○ Notion Sync ]", style="dim")
-                    pipe_text.append("\n\n▸ Orchestrator active. Awaiting manual trigger or scheduled queue.", style="dim")
+                    pipe_text.append("\n▸ Orchestrator active. Awaiting manual trigger or scheduled queue.", style="dim")
                     yield Static(pipe_text)
 
                 with Container(classes="bento-card", id="news-card"):
@@ -250,13 +247,12 @@ class DeskPilotTUI(App):
                         hyg_table.append("Status: ", style="dim")
                         hyg_table.append("● Cleared\n", style="bold #56d364")
                         hyg_table.append(f"Items:  {sh.files_removed} files • {sh.dirs_removed} dirs\n", style="dim")
-                        hyg_table.append("Storage Freed: ", style="dim")
-                        hyg_table.append(f"{freed}\n", style="bold #79c0ff")
+                        hyg_table.append(f"Freed:  {freed}", style="bold #79c0ff")
                         gauge_freed = freed
                     else:
                         hyg_table.append("Status: ", style="dim")
                         hyg_table.append("○ Not executed / Disabled\n", style="dim")
-                        hyg_table.append("Items:  0 files • 0 dirs\n", style="dim")
+                        hyg_table.append("Items:  0 files • 0 dirs", style="dim")
                         gauge_freed = "0 B"
 
                     with Horizontal():
