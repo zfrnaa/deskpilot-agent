@@ -1105,8 +1105,9 @@ async def main_async(
     with boot_animation(c, enabled=animate, labels=BOOT_TASK_LABELS):
         state = await run_phase1_boot_sequence(settings)
 
-    # Render terminal dashboard
-    render_dashboard(state, console=c, settings=settings)
+    # Render terminal dashboard unless launching interactive full-screen TUI
+    if not use_tui or startup:
+        render_dashboard(state, console=c, settings=settings)
 
     # Conversational voice briefing dispatch
     voice_worker: Any = None

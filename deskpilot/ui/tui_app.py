@@ -14,25 +14,21 @@ Matches the Bento-box visual concept mockup:
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime
 from typing import Any
 
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Static
 
 from deskpilot.boot_tasks import (
-    BookmarkAuditResult,
     CalendarAgendaResult,
     TempCleanResult,
     WingetUpdateResult,
 )
 from deskpilot.boot_tasks.news_digest import NewsDigestResult
 from deskpilot.config import Settings, load_settings
-from deskpilot.state import BootState
+from deskpilot.state import BootState, format_bytes
 
 
 DASHBOARD_CSS = """
@@ -73,11 +69,13 @@ Screen {
     width: 54%;
     margin-right: 1;
     layout: vertical;
+    overflow-y: auto;
 }
 
 #right-column {
     width: 46%;
     layout: vertical;
+    overflow-y: auto;
 }
 
 .bento-card {
@@ -134,23 +132,14 @@ Screen {
 """
 
 
-def format_bytes_str(size: int) -> str:
-    """Format bytes into readable string."""
-    for unit in ["B", "KB", "MB", "GB"]:
-        if abs(size) < 1024.0:
-            return f"{size:3.1f} {unit}"
-        size /= 1024.0
-    return f"{size:.1f} TB"
-
-
 def render_arc_gauge(freed_str: str) -> Text:
     """Render the circular/semi-circular arc gauge matching the concept mockup."""
-    #   ╭─────╮
-    #  │ 1.2 GB│
-    #  ╰─Freed─╯
+    #   ╭──────────╮
+    #   │  1.2 GB  │
+    #   ╰──Freed───╯
     t = Text()
     t.append("   ╭──────────╮\n", style="bold #79c0ff")
-    t.append("  │ ", style="bold #79c0ff")
+    t.append("   │ ", style="bold #79c0ff")
     t.append(f"{freed_str:^8}", style="bold #ffffff")
     t.append(" │\n", style="bold #79c0ff")
     t.append("   ╰──Freed───╯", style="bold #58a6ff")
@@ -218,26 +207,38 @@ class DeskPilotTUI(App):
                 with Container(classes="bento-card", id="hygiene-card"):
                     yield Static("System Hygiene (%TEMP%)", classes="card-title")
                     sh: TempCleanResult | None = self.state.system_hygiene
-                    freed = format_bytes_str(sh.bytes_freed) if sh and isinstance(sh, TempCleanResult) else "0 B"
-                    files_cnt = sh.files_removed if sh and isinstance(sh, TempCleanResult) else 0
-                    dirs_cnt = sh.dirs_removed if sh and isinstance(sh, TempCleanResult) else 0
-
                     hyg_table = Text()
-                    hyg_table.append("Status: ", style="dim")
-                    hyg_table.append("● Cleared\n", style="bold #56d364")
-                    hyg_table.append(f"Items:  {files_cnt} files • {dirs_cnt} dirs\n", style="dim")
-                    hyg_table.append(f"Storage Freed: ", style="dim")
-                    hyg_table.append(f"{freed}\n", style="bold #79c0ff")
+                    if sh is not None and isinstance(sh, TempCleanResult):
+                        freed = format_bytes(sh.bytes_freed)
+                        hyg_table.append("Status: ", style="dim")
+                        hyg_table.append("● Cleared\n", style="bold #56d364")
+                        hyg_table.append(f"Items:  {sh.files_removed} files • {sh.dirs_removed} dirs\n", style="dim")
+                        hyg_table.append("Storage Freed: ", style="dim")
+                        hyg_table.append(f"{freed}\n", style="bold #79c0ff")
+                        gauge_freed = freed
+                    else:
+                        hyg_table.append("Status: ", style="dim")
+                        hyg_table.append("○ Not executed / Disabled\n", style="dim")
+                        hyg_table.append("Items:  0 files • 0 dirs\n", style="dim")
+                        gauge_freed = "0 B"
 
                     with Horizontal():
-                        yield Static(hyg_table, classes="hygiene-text")
-                        yield Static(render_arc_gauge(freed), classes="hygiene-arc")
+                        yield Static(hyg_table)
+                        yield Static(render_arc_gauge(gauge_freed))
 
                 with Container(classes="bento-card", id="calendar-card"):
                     yield Static("Daily Digest & Calendar", classes="card-title")
                     ca: CalendarAgendaResult | None = self.state.calendar_agenda
                     cal_text = Text()
-                    if ca and isinstance(ca, CalendarAgendaResult) and ca.events:
+                    if ca is None or not isinstance(ca, CalendarAgendaResult):
+                        cal_text.append("○ Agenda not fetched / Disabled\n", style="dim")
+                    elif ca.error:
+                        cal_text.append("● Calendar error: ", style="bold #f85149")
+                        cal_text.append(f"{ca.error}\n", style="dim")
+                    elif not ca.is_configured:
+                        cal_text.append("● Token unconfigured / Auth required\n", style="bold #e3b341")
+                        cal_text.append("Re-authorize in browser via settings.\n", style="dim")
+                    elif ca.events:
                         cal_text.append(f"Timeline Schedule ({ca.date_str or 'Today'}):\n", style="dim")
                         for ev in ca.events[:3]:
                             time_chip = f"[{ev.start_time} - {ev.end_time}]" if not ev.is_all_day else "[All Day]"
@@ -252,7 +253,15 @@ class DeskPilotTUI(App):
                     yield Static("Package Updates (winget)", classes="card-title")
                     wu: WingetUpdateResult | None = self.state.winget_updates
                     wu_text = Text()
-                    if wu and isinstance(wu, WingetUpdateResult) and wu.total_count > 0:
+                    if wu is None or not isinstance(wu, WingetUpdateResult):
+                        wu_text.append("○ Check not executed / Disabled\n", style="dim")
+                    elif wu.timed_out:
+                        wu_text.append("● Query timed out\n", style="bold #e3b341")
+                        wu_text.append("Run winget upgrade manually.\n", style="dim")
+                    elif wu.error:
+                        wu_text.append("● Check failed: ", style="bold #f85149")
+                        wu_text.append(f"{wu.error}\n", style="dim")
+                    elif wu.total_count > 0:
                         wu_text.append(f"● {wu.total_count} Updates Pending\n", style="bold #e3b341")
                         for item in wu.updates[:4]:
                             wu_text.append(f" ▸ {item.name} ", style="bold #ffffff")
@@ -273,6 +282,7 @@ class DeskPilotTUI(App):
             yield Static("[3] Floorp", classes="dock-chip")
             yield Static("[4] Winget", classes="dock-chip")
             yield Static("[5] Read Later", classes="dock-chip")
+            yield Static("[6] Evals", classes="dock-chip")
             yield Static("[0/Q] Dismiss & Exit", classes="dock-chip")
 
     def on_key(self, event) -> None:
