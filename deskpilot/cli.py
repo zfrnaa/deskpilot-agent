@@ -557,6 +557,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Display SQLite storage and cross-thread memory statistics",
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch the full-screen interactive modern Bento TUI dashboard",
+    )
     parsed, _ = parser.parse_known_args(args)
     return parsed
 
@@ -1056,6 +1061,7 @@ async def main_async(
     eval_target: str = "downloads",
     local_only: bool = False,
     storage_status: bool = False,
+    use_tui: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -1155,7 +1161,13 @@ async def main_async(
     voice_active = getattr(settings, "voice", None) is None or settings.voice.enabled
     while True:
         try:
-            choice = prompt_action_menu(console=c, prompt_func=prompt_func, voice_enabled=voice_active)
+            if use_tui and not startup:
+                from deskpilot.ui.tui_app import run_tui_dashboard
+
+                tui_choice = run_tui_dashboard(state=state, settings=settings)
+                choice = str(tui_choice)
+            else:
+                choice = prompt_action_menu(console=c, prompt_func=prompt_func, voice_enabled=voice_active)
         except (KeyboardInterrupt, EOFError):
             c.print("\n[dim]Dismissed. Exiting DeskPilot.[/dim]")
             return 0
@@ -1210,7 +1222,10 @@ def main(args: list[str] | None = None) -> None:
                 )
             )
         else:
-            sys.exit(asyncio.run(main_async(startup=parsed.startup)))
+            if getattr(parsed, "tui", False):
+                sys.exit(asyncio.run(main_async(startup=parsed.startup, use_tui=True)))
+            else:
+                sys.exit(asyncio.run(main_async(startup=parsed.startup)))
     except KeyboardInterrupt:
         sys.exit(0)
 
