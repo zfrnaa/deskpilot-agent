@@ -108,7 +108,14 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
         return_exceptions=True,
     )
 
+    # Fetch curated morning news in parallel or right after boot tasks
+    from deskpilot.boot_tasks.news_digest import fetch_morning_news
+
     temp_res, winget_res, cal_res = results
+    try:
+        state.morning_news = await fetch_morning_news(enabled=True)
+    except Exception:
+        state.morning_news = None
 
     # 1. System hygiene
     if isinstance(temp_res, Exception):
@@ -270,6 +277,34 @@ def _create_calendar_panel(state: BootState) -> Panel:
     )
 
 
+def _create_news_panel(state: BootState) -> Panel:
+    """Build the Rich panel for top curated morning news headlines."""
+    from deskpilot.boot_tasks.news_digest import NewsDigestResult
+
+    mn = getattr(state, "morning_news", None)
+    if mn is None or not isinstance(mn, NewsDigestResult) or not mn.headlines:
+        return ui_theme.panel(
+            Text("No news headlines fetched or offline", style="dim"),
+            "Morning Briefing (Top Headlines)",
+            "yellow",
+            "[NEWS]",
+        )
+
+    lines: list[str] = []
+    for item in mn.headlines[:5]:
+        badge = f"[bold cyan][{item.topic}][/bold cyan]"
+        src = f" [dim]({item.source})[/dim]" if item.source else ""
+        link_str = f" [link={item.link}][dim underline]link[/dim underline][/link]" if item.link else ""
+        lines.append(f"• {badge} {item.title}{src}{link_str}")
+
+    return ui_theme.panel(
+        "\n".join(lines),
+        "Morning Briefing (Top Headlines)",
+        "yellow",
+        "[NEWS]",
+    )
+
+
 def render_dashboard(
     state: BootState,
     console: Console | None = None,
@@ -328,6 +363,8 @@ def render_dashboard(
         grid.add_row(hygiene_panel, winget_panel)
         c.print(grid)
         c.print(calendar_panel)
+        if getattr(state, "morning_news", None) is not None:
+            c.print(_create_news_panel(state))
 
     # Error panel if any errors were recorded during boot
     if state.has_errors():

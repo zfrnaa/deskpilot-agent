@@ -18,6 +18,7 @@ class BootState(BaseModel):
     floorp_bookmarks: Any | None = Field(default=None, alias="bookmarks")
     winget_updates: Any | None = None
     calendar_agenda: Any | None = None
+    morning_news: Any | None = None
     agent_findings: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
 

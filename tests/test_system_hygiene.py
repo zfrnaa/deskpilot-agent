@@ -222,3 +222,51 @@ def test_no_utf8_bom_in_hygiene_files():
         if py_file.exists():
             raw_bytes = py_file.read_bytes()
             assert not raw_bytes.startswith(b"\xef\xbb\xbf"), f"BOM found in {py_file}"
+
+
+@pytest.mark.asyncio
+async def test_clean_memory_dumps(tmp_path: Path):
+    from deskpilot.boot_tasks.system_hygiene import _clean_memory_dumps_sync
+    import os
+    mock_crash = tmp_path / "CrashDumps"
+    mock_crash.mkdir()
+    dmp_file = _create_file_with_age(mock_crash / "test.dmp", b"dmp_data", age_hours=200)
+
+    with patch.dict(os.environ, {"LOCALAPPDATA": str(tmp_path), "SystemRoot": str(tmp_path)}):
+        res = _clean_memory_dumps_sync(dump_max_age_days=7, dry_run=False)
+        assert res.files_removed >= 1
+        assert not dmp_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_clean_antigravity_orphans(tmp_path: Path):
+    from deskpilot.boot_tasks.system_hygiene import _clean_antigravity_orphans_sync
+    import sqlite3
+    ag_dir = tmp_path / ".gemini" / "antigravity"
+    ag_dir.mkdir(parents=True)
+    db_path = ag_dir / "conversation_summaries.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY);")
+    conn.execute("INSERT INTO conversation_summaries VALUES ('active-123');")
+    conn.commit()
+    conn.close()
+
+    brain_dir = ag_dir / "brain"
+    (brain_dir / "active-123").mkdir(parents=True)
+    (brain_dir / "active-123" / "artifact.md").write_text("keep me")
+
+    orphan_brain = brain_dir / "orphan-456"
+    orphan_brain.mkdir(parents=True)
+    (orphan_brain / "old_artifact.md").write_text("delete me")
+
+    conv_dir = ag_dir / "conversations"
+    conv_dir.mkdir(parents=True)
+    (conv_dir / "active-123.db").write_text("active db")
+    (conv_dir / "orphan-456.db").write_text("orphan db")
+
+    res = _clean_antigravity_orphans_sync(ag_dir, dry_run=False)
+    assert res.files_removed == 2
+    assert (brain_dir / "active-123").exists()
+    assert (conv_dir / "active-123.db").exists()
+    assert not orphan_brain.exists()
+    assert not (conv_dir / "orphan-456.db").exists()

@@ -291,6 +291,13 @@ def summarize_boot_for_voice(state: BootState) -> str:
         else:
             parts.append("Your calendar is completely clear today.")
 
+    # 4. Morning news headlines
+    mn = getattr(state, "morning_news", None)
+    if mn is not None and getattr(mn, "headlines", None):
+        parts.append("Here are your top five morning news headlines:")
+        for item in mn.headlines[:5]:
+            parts.append(f"{item.topic}: {item.title}.")
+
     return " ".join(parts)
 
 

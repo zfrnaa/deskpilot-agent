@@ -22,6 +22,10 @@ class TempCleanerConfig(BaseModel):
     enabled: bool = True
     max_age_hours: int = 24
     temp_path: Path | None = None
+    clean_windows_temp: bool = False
+    clean_memory_dumps: bool = False
+    dump_max_age_days: int = 7
+    clean_antigravity_orphans: bool = False
 
     def get_resolved_temp_path(self) -> Path:
         """Return the resolved path to clean, defaulting to system temp."""
