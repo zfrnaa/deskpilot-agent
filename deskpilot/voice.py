@@ -9,7 +9,6 @@ Provides conversational voice summaries for:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import urllib.request
@@ -51,7 +50,7 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
         try:
             urllib.request.urlretrieve(KOKORO_MODEL_URL, tmp_model)
             if tmp_model.stat().st_size < MIN_MODEL_SIZE:
-                raise IOError(f"Downloaded model file incomplete: {tmp_model.stat().st_size} bytes")
+                raise OSError(f"Downloaded model file incomplete: {tmp_model.stat().st_size} bytes")
             tmp_model.replace(model_path)
             logger.info("Kokoro model download complete.")
         except Exception:
@@ -65,7 +64,7 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
         try:
             urllib.request.urlretrieve(KOKORO_VOICES_URL, tmp_voices)
             if tmp_voices.stat().st_size < MIN_VOICES_SIZE:
-                raise IOError(f"Downloaded voices file incomplete: {tmp_voices.stat().st_size} bytes")
+                raise OSError(f"Downloaded voices file incomplete: {tmp_voices.stat().st_size} bytes")
             tmp_voices.replace(voices_path)
             logger.info("Kokoro voices download complete.")
         except Exception:
@@ -291,7 +290,7 @@ def summarize_boot_for_voice(state: BootState) -> str:
         else:
             parts.append("Your calendar is completely clear today.")
 
-    # 4. Morning news headlines
+    # 4. Today news headlines
     mn = getattr(state, "morning_news", None)
     if mn is not None and getattr(mn, "headlines", None):
         parts.append("Here are your top five morning news headlines:")
