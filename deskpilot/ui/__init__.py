@@ -7,4 +7,4 @@ circular-import ordering concerns.
 
 from __future__ import annotations
 
-__all__ = ["art", "progress", "theme"]
+__all__ = ["art", "pipeline", "progress", "theme"]

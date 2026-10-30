@@ -447,18 +447,44 @@ def prompt_action_menu(
 ) -> str:
     """Display the action menu and prompt user for their selection."""
     c = ui_theme.get_console(console)
+    unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
 
     menu_table = Table(show_header=False, box=None, padding=(0, 1))
-    menu_table.add_column("Key", style="bold cyan", width=4)
+    menu_table.add_column("Key", style="bold cyan", width=6)
     menu_table.add_column("Action", style="white")
 
-    menu_table.add_row("[1]", "Triage Screenshots (Sort to Notion & cleanup)")
-    menu_table.add_row("[2]", "Downloads Folder Cleanup (Smart categorize & delete advice)")
-    menu_table.add_row("[3]", "Clean Floorp Bookmarks (Launch floorp bookmark preview)")
-    menu_table.add_row("[4]", "Upgrade Winget Packages (Execute interactive winget upgrade)")
-    menu_table.add_row("[5]", "Notion Read-Later Digest (Preview pick & mark read)")
-    menu_table.add_row("[6]", "Run Agent Evaluations (LangSmith Benchmark)")
-    menu_table.add_row("[0]", "Dismiss & Exit")
+    # Clean action chips with badges
+    badge_active = "[bold green]LIVE[/bold green]" if unicode_ok else "LIVE"
+    bullet = "▸" if unicode_ok else ">"
+
+    menu_table.add_row(
+        "[bold cyan][1][/bold cyan]",
+        f"Triage Screenshots  [dim]• Sort to Notion & cleanup[/dim]",
+    )
+    menu_table.add_row(
+        "[bold cyan][2][/bold cyan]",
+        f"Downloads Folder Cleanup  [dim]• Smart categorize & delete advice[/dim]",
+    )
+    menu_table.add_row(
+        "[bold cyan][3][/bold cyan]",
+        f"Clean Floorp Bookmarks  [dim]• Launch floorp bookmark preview[/dim]",
+    )
+    menu_table.add_row(
+        "[bold cyan][4][/bold cyan]",
+        f"Upgrade Winget Packages  [dim]• Execute interactive winget upgrade[/dim]",
+    )
+    menu_table.add_row(
+        "[bold cyan][5][/bold cyan]",
+        f"Notion Read-Later Digest  [dim]• Preview pick & mark read[/dim]",
+    )
+    menu_table.add_row(
+        "[bold cyan][6][/bold cyan]",
+        f"Run Agent Evaluations  [dim]• LangSmith Benchmark[/dim]",
+    )
+    menu_table.add_row(
+        "[bold yellow][0][/bold yellow]",
+        "[dim]Dismiss & Exit[/dim]",
+    )
 
     c.print(
         ui_theme.panel(
@@ -468,7 +494,7 @@ def prompt_action_menu(
             ui_theme.ICON_MENU,
         )
     )
-    prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
+    prompt_glyph = ui_theme.GLYPH_PROMPT if unicode_ok else ">"
     selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
     if selection in {"0", "1", "2", "3", "4", "5", "6"} and voice_enabled:
         try:
@@ -660,7 +686,17 @@ async def execute_menu_action(
         c.print("[dim]Exiting DeskPilot. Have a productive day![/dim]")
         return False
     elif normalized_choice == "1":
-        c.print("[cyan]Starting Screenshot Triage Agent...[/cyan]")
+        from deskpilot.ui.pipeline import render_pipeline
+        unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
+        c.print(
+            render_pipeline(
+                ["Scan", "Vision Triage", "Cluster", "Review", "Notion Sync", "Cleanup"],
+                current_index=0,
+                status_msg="Initializing vision model & scanning screenshots directory...",
+                unicode_ok=unicode_ok,
+                title="Screenshot Triage Agent Pipeline",
+            )
+        )
         try:
             from deskpilot.agent_tasks.screenshot_agent.graph import run_screenshot_triage
             from deskpilot.agent_tasks.screenshot_agent.vision import (
@@ -774,7 +810,17 @@ async def execute_menu_action(
             c.print(f"[red]Screenshot Triage failed: {e}[/red]")
         return True
     elif normalized_choice == "2":
-        c.print("[cyan]Starting Downloads Folder Cleanup Agent...[/cyan]")
+        from deskpilot.ui.pipeline import render_pipeline
+        unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
+        c.print(
+            render_pipeline(
+                ["Scan Downloads", "Categorize & Dups", "Propose Plan", "User Review", "Execute Actions"],
+                current_index=0,
+                status_msg="Scanning downloads folder & identifying file categories...",
+                unicode_ok=unicode_ok,
+                title="Downloads Hygiene Agent Pipeline",
+            )
+        )
         try:
             from deskpilot.agent_tasks.downloads_agent.graph import run_downloads_hygiene
 
