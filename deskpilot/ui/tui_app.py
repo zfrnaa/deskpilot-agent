@@ -19,7 +19,7 @@ from typing import Any
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from deskpilot.boot_tasks import (
     CalendarAgendaResult,
@@ -115,19 +115,56 @@ Screen {
     height: 1fr;
 }
 
-#dock-bar {
-    height: 3;
+#dock-container {
+    height: 5;
     border-top: solid #30363d;
-    layout: horizontal;
-    align: left middle;
-    color: #8b949e;
     padding-top: 1;
+}
+
+#chips-row {
+    height: 1;
+    layout: horizontal;
+}
+
+#chips-row Static {
+    width: auto;
+    margin-right: 2;
 }
 
 .dock-chip {
     color: #79c0ff;
     text-style: bold;
-    margin-right: 2;
+}
+
+.dock-exit {
+    color: #e3b341;
+    text-style: bold;
+}
+
+#input-row {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+    margin-top: 1;
+}
+
+#prompt-symbol {
+    width: auto;
+    color: #56d364;
+    text-style: bold;
+    margin-right: 1;
+}
+
+#prompt-input {
+    width: 1fr;
+    height: 1;
+    border: none;
+    background: #161b22;
+    color: #ffffff;
+}
+
+#prompt-input:focus {
+    border: none;
 }
 """
 
@@ -275,23 +312,44 @@ class DeskPilotTUI(App):
                     yield Static(wu_text)
 
         # 3. Bottom Command & Shortcut Dock
-        with Horizontal(id="dock-bar"):
-            yield Static(Text("Hotkeys:  ", style="dim"))
-            yield Static("[1] Screenshots", classes="dock-chip")
-            yield Static("[2] Downloads", classes="dock-chip")
-            yield Static("[3] Floorp", classes="dock-chip")
-            yield Static("[4] Winget", classes="dock-chip")
-            yield Static("[5] Read Later", classes="dock-chip")
-            yield Static("[6] Evals", classes="dock-chip")
-            yield Static("[0/Q] Dismiss & Exit", classes="dock-chip")
+        with Vertical(id="dock-container"):
+            with Horizontal(id="chips-row"):
+                yield Static(Text("Hotkeys:  ", style="dim"))
+                yield Static("[1] Screenshots", classes="dock-chip")
+                yield Static("[2] Downloads", classes="dock-chip")
+                yield Static("[3] Floorp", classes="dock-chip")
+                yield Static("[4] Winget", classes="dock-chip")
+                yield Static("[5] Read Later", classes="dock-chip")
+                yield Static("[6] Evals", classes="dock-chip")
+                yield Static("[0/Q] Exit", classes="dock-exit")
+            with Horizontal(id="input-row"):
+                yield Static("▸ deskpilot run: ", id="prompt-symbol")
+                yield Input(
+                    placeholder="Type an option [0-6] and press Enter (or press number directly)...",
+                    id="prompt-input",
+                )
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle immediate hotkey numbers typed into the input prompt."""
+        val = event.value.strip().lower()
+        if val in ("0", "q"):
+            self.exit(result=0)
+        elif val in ("1", "2", "3", "4", "5", "6"):
+            self.exit(result=int(val))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle option submitted via Enter in the input line."""
+        val = event.value.strip().lower()
+        if val in ("0", "q", "exit", "quit"):
+            self.exit(result=0)
+        elif val in ("1", "2", "3", "4", "5", "6"):
+            self.exit(result=int(val))
 
     def on_key(self, event) -> None:
-        """Handle keyboard navigation and option selection."""
+        """Handle escape and global hotkey navigation."""
         key = event.key.lower()
-        if key in ("0", "q", "escape"):
+        if key in ("escape",):
             self.exit(result=0)
-        elif key in ("1", "2", "3", "4", "5", "6"):
-            self.exit(result=int(key))
 
 
 async def run_tui_dashboard(
