@@ -267,7 +267,7 @@ class DeskPilotTUI(App):
 
         # 3. Bottom Command & Shortcut Dock
         with Horizontal(id="dock-bar"):
-            yield Static("Hotkeys:  ", style="dim")
+            yield Static(Text("Hotkeys:  ", style="dim"))
             yield Static("[1] Screenshots", classes="dock-chip")
             yield Static("[2] Downloads", classes="dock-chip")
             yield Static("[3] Floorp", classes="dock-chip")
