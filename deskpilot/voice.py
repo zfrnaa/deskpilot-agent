@@ -121,6 +121,7 @@ def convert_to_wav_bytes(samples: Any, sample_rate: int) -> bytes:
     """Convert float32 mono audio numpy array to 16-bit PCM WAV in memory."""
     import io
     import wave
+
     import numpy as np
 
     arr = np.asarray(samples, dtype=np.float32)
@@ -250,7 +251,11 @@ def speak_in_background(text: str, voice_cfg: VoiceConfig) -> threading.Thread |
 
 def summarize_boot_for_voice(state: BootState) -> str:
     """Format BootState findings into a natural, conversational spoken briefing."""
-    from deskpilot.boot_tasks import CalendarAgendaResult, TempCleanResult, WingetUpdateResult
+    from deskpilot.boot_tasks import (
+        CalendarAgendaResult,
+        TempCleanResult,
+        WingetUpdateResult,
+    )
     from deskpilot.state import format_bytes
 
     parts: list[str] = ["Good day, here is your morning briefing."]

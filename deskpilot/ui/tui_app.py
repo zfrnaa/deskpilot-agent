@@ -1,12 +1,12 @@
 """Textual Full-Screen Modern TUI Dashboard for DeskPilot.
 
 Matches the Bento-box visual concept mockup:
-- Top Header: Sleek stylized 'DESKPILOT' wordmark & timestamp
+- Top Header: Stylized ASCII/Block 'DESKPILOT' banner & date/time
 - Left Column:
     1. Agent Workflow Pipeline: Rounded pill cards with step connectors
-    2. Curated Morning News Briefing: Real-time intelligence feed
+    2. Curated Morning News Briefing: Real-time intelligence feed (full 5 headlines)
 - Right Column:
-    1. System Hygiene: Semi-circular metric arc & stats
+    1. System Hygiene & Disk Metrics: Real-time drive space graph (used/free/freed) & temp stats
     2. Daily Digest & Calendar: Timeline markers with priority chips
     3. Package Updates: Version delta pills
 - Bottom Command Dock: Interactive hotkey bar [1] Triage [2] Clean [3] Floorp [4] Winget [5] Notion [0] Exit
@@ -14,6 +14,7 @@ Matches the Bento-box visual concept mockup:
 
 from __future__ import annotations
 
+import shutil
 from typing import Any
 
 from rich.text import Text
@@ -29,6 +30,7 @@ from deskpilot.boot_tasks import (
 from deskpilot.boot_tasks.news_digest import NewsDigestResult
 from deskpilot.config import Settings, load_settings
 from deskpilot.state import BootState, format_bytes
+from deskpilot.ui.theme import supports_glyphs
 
 
 DASHBOARD_CSS = """
@@ -39,24 +41,23 @@ Screen {
     padding: 0 1;
 }
 
-#top-bar {
-    height: 2;
+#top-header {
+    height: auto;
+    margin-bottom: 1;
     layout: horizontal;
     align: left middle;
 }
 
-#logo-title {
+#logo-block {
+    width: auto;
     color: #58a6ff;
     text-style: bold;
-    width: auto;
-    content-align: left middle;
 }
 
-#time-badge {
-    color: #8b949e;
+#meta-block {
     width: auto;
-    margin-left: 2;
-    content-align: left middle;
+    content-align: right middle;
+    color: #8b949e;
 }
 
 #bento-container {
@@ -102,7 +103,8 @@ Screen {
 }
 
 #hygiene-card {
-    height: 6;
+    height: auto;
+    min-height: 7;
 }
 
 #calendar-card {
@@ -166,11 +168,19 @@ Screen {
 """
 
 
+def render_logo_art() -> Text:
+    """Render stylized ASCII wordmark banner for DESKPILOT."""
+    banner = Text()
+    banner.append("  ____  _____ ____  _  ______ ___ _     ___ _____ \n", style="bold #58a6ff")
+    banner.append(" |  _ \\| ____/ ___|| |/ /  _ \\_ _| |   / _ \\_   _|\n", style="bold #79c0ff")
+    banner.append(" | | | |  _| \\___ \\| ' /| |_) | || |  | | | || |  \n", style="bold #58a6ff")
+    banner.append(" | |_| | |___ ___) | . \\|  __/| || |__| |_| || |  \n", style="bold #388bfd")
+    banner.append(" |____/|_____|____/|_|\\_\\_|  |___|_____\\___/ |_|  ", style="bold #1f6feb")
+    return banner
+
+
 def render_arc_gauge(freed_str: str) -> Text:
     """Render the compact circular arc gauge matching the concept mockup."""
-    #   ╭────────╮
-    #   │15.0 MB │
-    #   ╰─Freed──╯
     t = Text()
     t.append(" ╭──────╮\n", style="bold #79c0ff")
     t.append(" │", style="bold #79c0ff")
@@ -200,10 +210,14 @@ class DeskPilotTUI(App):
         """Compose the full Bento dashboard."""
         time_str = self.state.timestamp.strftime("%A, %B %d, %Y - %I:%M %p")
 
-        # 1. Top HUD Header
-        with Horizontal(id="top-bar"):
-            yield Static("⚡ DESKPILOT", id="logo-title")
-            yield Static(f"│  Morning Command Center  │  {time_str}", id="time-badge")
+        # 1. Big DeskPilot Wordmark Header + Metadata
+        with Horizontal(id="top-header"):
+            yield Static(render_logo_art(), id="logo-block")
+            meta_text = Text()
+            meta_text.append("\n  Morning Command Center\n", style="bold #58a6ff")
+            meta_text.append(f"  {time_str}\n", style="dim")
+            meta_text.append("  Autonomous Local Multi-Agent Orchestrator", style="dim italic")
+            yield Static(meta_text, id="meta-block")
 
         # 2. Main Two-Column Bento Grid
         with Horizontal(id="bento-container"):
@@ -239,21 +253,50 @@ class DeskPilotTUI(App):
             # Right Column (System Hygiene + Calendar + Winget)
             with Vertical(id="right-column"):
                 with Container(classes="bento-card", id="hygiene-card"):
-                    yield Static("System Hygiene (%TEMP%)", classes="card-title")
+                    yield Static("System Hygiene & Storage Metrics", classes="card-title")
                     sh: TempCleanResult | None = self.state.system_hygiene
+
+                    # Calculate system drive metrics
+                    try:
+                        total_bytes, used_bytes, free_bytes = shutil.disk_usage(".")
+                        pct_used = int((used_bytes / total_bytes) * 100) if total_bytes > 0 else 0
+                        free_str = format_bytes(free_bytes)
+                        total_str = format_bytes(total_bytes)
+                    except Exception:
+                        pct_used = 0
+                        free_str = "N/A"
+                        total_str = "N/A"
+
+                    # Determine Unicode glyph vs ASCII fallback for progress bar
+                    use_glyphs = supports_glyphs()
+                    fill_char = "█" if use_glyphs else "#"
+                    empty_char = "░" if use_glyphs else "-"
+                    bar_w = 14
+                    filled_count = int(round((pct_used / 100.0) * bar_w))
+                    filled_count = max(0, min(bar_w, filled_count))
+                    bar_str = fill_char * filled_count + empty_char * (bar_w - filled_count)
+
                     hyg_table = Text()
                     if sh is not None and isinstance(sh, TempCleanResult):
                         freed = format_bytes(sh.bytes_freed)
                         hyg_table.append("Status: ", style="dim")
                         hyg_table.append("● Cleared\n", style="bold #56d364")
-                        hyg_table.append(f"Items:  {sh.files_removed} files • {sh.dirs_removed} dirs\n", style="dim")
-                        hyg_table.append(f"Freed:  {freed}", style="bold #79c0ff")
+                        hyg_table.append(f"Cleaned: {sh.files_removed} files • {sh.dirs_removed} dirs ({freed})\n", style="dim")
                         gauge_freed = freed
                     else:
                         hyg_table.append("Status: ", style="dim")
                         hyg_table.append("○ Not executed / Disabled\n", style="dim")
-                        hyg_table.append("Items:  0 files • 0 dirs", style="dim")
+                        hyg_table.append("Cleaned: 0 files • 0 dirs (0 B)\n", style="dim")
                         gauge_freed = "0 B"
+
+                    # Add Storage Space Gauge Graph
+                    hyg_table.append("Disk:   ", style="dim")
+                    hyg_table.append(f"[{bar_str}] ", style="bold #79c0ff")
+                    bar_color = "#56d364" if pct_used < 75 else ("#e3b341" if pct_used < 90 else "#f85149")
+                    hyg_table.append(f"{pct_used}% used\n", style=f"bold {bar_color}")
+                    hyg_table.append("Space:  ", style="dim")
+                    hyg_table.append(f"{free_str} free ", style="bold #56d364")
+                    hyg_table.append(f"of {total_str}", style="dim")
 
                     with Horizontal():
                         yield Static(hyg_table)
