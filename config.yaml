@@ -56,6 +56,10 @@ ollama:
   model: minicpm-v
   url: http://localhost:11434
 
+# Morning news digest (curated topics: Tech, Malaysia, K-Pop/Music, Concerts, Art)
+news:
+  enabled: true
+
 # Voice prompt notifications (Kokoro-ONNX neural TTS)
 voice:
   enabled: true

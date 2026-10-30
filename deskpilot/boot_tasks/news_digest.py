@@ -55,7 +55,9 @@ def _fetch_single_topic_sync(
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
-            tree = ET.fromstring(response.read())
+            raw_data = response.read()
+            # Decode using utf-8 with replacement for clean text
+            tree = ET.fromstring(raw_data)
             first_item = tree.find(".//item")
             if first_item is None:
                 return None
@@ -69,6 +71,16 @@ def _fetch_single_topic_sync(
             link = link_elem.text.strip() if link_elem is not None and link_elem.text else ""
             pub_date = pub_elem.text.strip() if pub_elem is not None and pub_elem.text else ""
             source = source_elem.text.strip() if source_elem is not None and source_elem.text else ""
+
+            # Normalize common smart quotes and hyphens to ASCII equivalents
+            title = (
+                title.replace("\u2019", "'")
+                .replace("\u2018", "'")
+                .replace("\u201c", '"')
+                .replace("\u201d", '"')
+                .replace("\u2014", " - ")
+                .replace("\u2013", "-")
+            )
 
             if " - " in title:
                 parts = title.rsplit(" - ", 1)
