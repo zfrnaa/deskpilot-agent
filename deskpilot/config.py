@@ -62,12 +62,40 @@ class CalendarConfig(BaseModel):
     max_results: int = 20
 
     def get_resolved_credentials_path(self) -> Path:
-        """Return resolved path to Google OAuth credentials.json."""
-        return self.credentials_path.expanduser().resolve()
+        """Return resolved path to Google OAuth credentials.json.
+
+        Checks relative to current working directory first, then falls back
+        to the project repository root (one level up from package directory).
+        """
+        p = self.credentials_path.expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        cwd_p = p.resolve()
+        if cwd_p.exists():
+            return cwd_p
+        repo_root = Path(__file__).resolve().parent.parent
+        repo_p = (repo_root / p).resolve()
+        if repo_p.exists():
+            return repo_p
+        return cwd_p
 
     def get_resolved_token_path(self) -> Path:
-        """Return resolved path to stored Google OAuth token.json."""
-        return self.token_path.expanduser().resolve()
+        """Return resolved path to stored Google OAuth token.json.
+
+        Checks relative to current working directory first, then falls back
+        to the project repository root (one level up from package directory).
+        """
+        p = self.token_path.expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        cwd_p = p.resolve()
+        if cwd_p.exists():
+            return cwd_p
+        repo_root = Path(__file__).resolve().parent.parent
+        repo_p = (repo_root / p).resolve()
+        if repo_p.exists():
+            return repo_p
+        return cwd_p
 
 
 class ScreenshotDestinationsConfig(BaseModel):
