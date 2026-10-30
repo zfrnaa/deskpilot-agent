@@ -396,25 +396,40 @@ def render_dashboard(
     winget_panel = _create_winget_panel(state, unicode_ok=unicode_ok)
     calendar_panel = _create_calendar_panel(state, unicode_ok=unicode_ok)
 
+    # --- Two-column Bento Grid Layout ---
+    # Left column: Workflow Pipeline Status + Morning News Feed + (optional) Floorp Bookmarks
+    # Right column: System Hygiene + Today's Agenda + Package Updates
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column("left", ratio=5)
+    grid.add_column("right", ratio=5)
+
+    from deskpilot.ui.pipeline import render_pipeline
+
+    pipeline_card = render_pipeline(
+        ["Ingest Watcher", "Vision Triage", "Notion Sync"],
+        current_index=0,
+        status_msg="Orchestrator ready. Monitoring pending triage queues.",
+        unicode_ok=unicode_ok,
+        title="Agent Workflow Pipeline",
+    )
+
+    left_cards = [pipeline_card]
+    if getattr(state, "morning_news", None) is not None:
+        left_cards.append(_create_news_panel(state, unicode_ok=unicode_ok))
     if state.bookmarks is not None:
-        # If bookmarks have been audited (e.g. on-demand via option [3]), render 2x2 grid
-        grid = Table.grid(expand=True, padding=(0, 1))
-        grid.add_column(ratio=1)
-        grid.add_column(ratio=1)
-        bookmarks_panel = _create_bookmarks_panel(state, unicode_ok=unicode_ok)
-        grid.add_row(hygiene_panel, bookmarks_panel)
-        grid.add_row(winget_panel, calendar_panel)
-        c.print(grid)
-    else:
-        # Default morning boot: clean 3-panel layout (Hygiene & Winget top, Calendar agenda below)
-        grid = Table.grid(expand=True, padding=(0, 1))
-        grid.add_column(ratio=1)
-        grid.add_column(ratio=1)
-        grid.add_row(hygiene_panel, winget_panel)
-        c.print(grid)
-        c.print(calendar_panel)
-        if getattr(state, "morning_news", None) is not None:
-            c.print(_create_news_panel(state, unicode_ok=unicode_ok))
+        left_cards.append(_create_bookmarks_panel(state, unicode_ok=unicode_ok))
+
+    # Right column stack
+    right_cards = [hygiene_panel, calendar_panel, winget_panel]
+
+    # Combine into paired rows
+    max_rows = max(len(left_cards), len(right_cards))
+    for r_idx in range(max_rows):
+        left_item = left_cards[r_idx] if r_idx < len(left_cards) else Text("")
+        right_item = right_cards[r_idx] if r_idx < len(right_cards) else Text("")
+        grid.add_row(left_item, right_item)
+
+    c.print(grid)
 
     # Error panel if any errors were recorded during boot
     if state.has_errors():

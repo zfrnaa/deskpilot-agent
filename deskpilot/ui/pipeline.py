@@ -19,22 +19,22 @@ def render_pipeline(
     current_index: int,
     status_msg: str = "",
     unicode_ok: bool = True,
-    title: str = "Agent Execution Pipeline",
+    title: str = "Agent Workflow Pipeline",
 ) -> Panel:
     """Render a horizontal node pipeline with active and pending states."""
-    node_done = "●" if unicode_ok else "*"
-    node_active = "◎" if unicode_ok else "O"
-    node_pending = "○" if unicode_ok else "o"
-    connector = "──" if unicode_ok else "--"
+    node_done = "●" if unicode_ok else "[x]"
+    node_active = "●" if unicode_ok else "[*]"
+    node_pending = "○" if unicode_ok else "[ ]"
+    connector = " ──→ " if unicode_ok else " -> "
 
     pipeline_text = Text()
 
     for idx, name in enumerate(steps):
         if idx > 0:
             if idx <= current_index:
-                pipeline_text.append(f" {connector} ", style=f"bold {theme.TEAL}")
+                pipeline_text.append(connector, style=f"bold {theme.TEAL}")
             else:
-                pipeline_text.append(f" {connector} ", style="dim")
+                pipeline_text.append(connector, style="dim")
 
         if idx < current_index:
             pipeline_text.append(f"{node_done} ", style=f"bold {theme.GREEN}")

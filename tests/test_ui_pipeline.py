@@ -46,4 +46,4 @@ def test_render_pipeline_ascii_fallback():
     assert "Step C" in output
     assert "Starting..." in output
     assert "●" not in output
-    assert "O" in output or "*" in output
+    assert "[*]" in output or "[x]" in output or "->" in output
