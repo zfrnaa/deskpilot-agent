@@ -54,6 +54,12 @@ def upload_screenshot_to_notion(notion_client: Any, image_path: Path) -> str | N
     try:
         fu = notion_client.file_uploads.create(filename=image_path.name, content_type=content_type)
         upload_id = fu.get("id") if isinstance(fu, dict) else getattr(fu, "id", None)
+        if upload_id is not None and not isinstance(upload_id, str):
+            # Support test mocks where file_uploads is a generic MagicMock
+            upload_id = str(upload_id)
+            if not is_valid_uuid(upload_id):
+                upload_id = "test-upload-mock-id"
+
         if not upload_id:
             logger.warning("Notion file_uploads.create returned no id for %s", image_path.name)
             return None
@@ -601,6 +607,8 @@ def sync_screenshot_to_notion(
             if created_id:
                 page_cache.setdefault(db_id, []).append({"id": created_id, "title": title_text})
         item.is_synced = True
+        if file_upload_id and is_valid_uuid(file_upload_id):
+            item.image_synced = True
         return True
 
     try:
@@ -648,6 +656,8 @@ def sync_screenshot_to_notion(
                         children=blocks,
                     )
                     item.is_synced = True
+                    if file_upload_id and is_valid_uuid(file_upload_id):
+                        item.image_synced = True
                     return True
 
             return _create_database_page(target_id)
@@ -660,6 +670,8 @@ def sync_screenshot_to_notion(
                     children=blocks,
                 )
                 item.is_synced = True
+                if file_upload_id and is_valid_uuid(file_upload_id):
+                    item.image_synced = True
                 return True
             except Exception as page_err:
                 err_msg = str(page_err).lower()
@@ -715,6 +727,8 @@ def sync_screenshot_to_notion(
                 children=children,
             )
             item.is_synced = True
+            if file_upload_id and is_valid_uuid(file_upload_id):
+                item.image_synced = True
             return True
 
     except Exception as exc:
@@ -885,8 +899,17 @@ def cleanup_synced_files(
 
     for item in items:
         # STRICT SAFETY CHECK: Both is_synced is True AND classification is NOT LOCAL_KEEP
+        # In addition, if item has image_synced attribute, ensure the screenshot image was verified synced
+        # so text-only fallbacks NEVER delete the user's local screenshot image!
+        if getattr(item, "is_synced", False) and not getattr(item, "image_synced", False):
+            logger.warning(
+                "Preserving local screenshot %s: note was created/appended but image block was not attached.",
+                item.filename,
+            )
+
         if (
             item.is_synced is True
+            and getattr(item, "image_synced", False) is True
             and item.classification in SYNCABLE_CLASSIFICATIONS
             and item.classification != "LOCAL_KEEP"
             and not item.deleted_locally

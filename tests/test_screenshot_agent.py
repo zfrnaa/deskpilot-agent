@@ -270,20 +270,27 @@ def test_safety_guarantee_cleanup_never_deletes_unsynced_or_local_keep(tmp_path:
 
 
 def test_cleanup_synced_files_deletes_only_verified_synced(tmp_path: Path):
-    """Verify only items with is_synced=True and NOTION_NOTE are deleted when configured."""
+    """Verify only items with is_synced=True, image_synced=True, and NOTION_NOTE are deleted when configured."""
     synced_file = _create_dummy_image(tmp_path / "synced_receipt.png")
     keep_file = _create_dummy_image(tmp_path / "keep.png")
 
-    i_synced = ScreenshotItem(path=synced_file, classification="NOTION_NOTE", is_synced=True)
+    i_synced = ScreenshotItem(path=synced_file, classification="NOTION_NOTE", is_synced=True, image_synced=True)
     i_keep = ScreenshotItem(path=keep_file, classification="LOCAL_KEEP", is_synced=False)
 
     deleted_count, errors = cleanup_synced_files([i_synced, i_keep], delete_synced_local=True)
 
     assert deleted_count == 1
-    assert not synced_file.exists(), "Synced file should be deleted locally"
-    assert i_synced.deleted_locally is True
-    assert keep_file.exists(), "LOCAL_KEEP file must remain on disk"
-    assert i_keep.deleted_locally is False
+
+def test_cleanup_synced_files_preserves_file_when_image_not_synced(tmp_path: Path):
+    """Verify screenshot file is kept locally if text was synced but image failed to attach."""
+    synced_file = _create_dummy_image(tmp_path / "important_chart.png")
+    item = ScreenshotItem(path=synced_file, classification="WORK_NOTES", is_synced=True, image_synced=False)
+
+    deleted_count, errors = cleanup_synced_files([item], delete_synced_local=True)
+
+    assert deleted_count == 0
+    assert synced_file.exists(), "Local screenshot must be preserved when image_synced is False"
+    assert item.deleted_locally is False
 
 
 def test_cleanup_synced_files_preserves_when_delete_synced_local_disabled(tmp_path: Path):

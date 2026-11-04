@@ -28,6 +28,7 @@ class ScreenshotItem(BaseModel):
     cluster_tag: str = "General"
     rationale: str = ""
     is_synced: bool = False
+    image_synced: bool = False
     deleted_locally: bool = False
 
     @model_validator(mode="after")

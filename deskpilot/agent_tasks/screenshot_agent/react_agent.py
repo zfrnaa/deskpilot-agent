@@ -95,6 +95,7 @@ def search_notion(
     *,
     notion_client: Any,
     database_id: str,
+    tag_prop: str | None = None,
 ) -> list[dict[str, Any]]:
     """Inspect existing Notion pages in the target database.
 
@@ -161,6 +162,7 @@ def search_notion(
 
             title_text = ""
             tag_text = ""
+            fallback_tag_text = ""
 
             for prop_name, prop in properties.items():
                 if not isinstance(prop, dict):
@@ -175,14 +177,29 @@ def search_notion(
                     title_text = "".join(parts).strip()
                 elif p_type == "select":
                     sel = prop.get("select") or {}
-                    tag_text = sel.get("name", "")
+                    val = sel.get("name", "")
+                    if tag_prop:
+                        if prop_name.lower() == tag_prop.lower():
+                            tag_text = val
+                    else:
+                        if not fallback_tag_text:
+                            fallback_tag_text = val
                 elif p_type == "multi_select":
                     tags = [
                         opt.get("name", "")
                         for opt in (prop.get("multi_select") or [])
                         if isinstance(opt, dict) and opt.get("name")
                     ]
-                    tag_text = ", ".join(tags)
+                    val = ", ".join(tags)
+                    if tag_prop:
+                        if prop_name.lower() == tag_prop.lower():
+                            tag_text = val
+                    else:
+                        if not fallback_tag_text:
+                            fallback_tag_text = val
+
+            if not tag_prop and not tag_text:
+                tag_text = fallback_tag_text
 
             # Filtering logic
             matches_query = True
@@ -316,6 +333,7 @@ def create_notion_react_tools(
             subject=subject,
             notion_client=notion_client,
             database_id=database_id,
+            tag_prop=schema.get("tag_prop") if isinstance(schema, dict) else None,
         )
 
     def _append_to_page(
@@ -526,6 +544,8 @@ def run_react_consolidation_agent(
 
         if action and target_page_id:
             item.is_synced = True
+            if file_upload_id and is_valid_uuid(file_upload_id):
+                item.image_synced = True
             return {
                 "action": action,
                 "page_id": target_page_id,
@@ -579,6 +599,8 @@ def run_react_consolidation_agent(
 
         page_id = created_page.get("id") if isinstance(created_page, dict) else getattr(created_page, "id", "")
         item.is_synced = True
+        if resolved_upload_id and is_valid_uuid(resolved_upload_id):
+            item.image_synced = True
         return {
             "action": "create",
             "page_id": page_id or "",

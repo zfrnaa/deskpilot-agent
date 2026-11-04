@@ -118,6 +118,64 @@ def test_search_notion_tool(mock_notion_client):
     assert results_subj[0]["id"] == "page-456"
     assert results_subj[0]["title"] == "Architecture Notes"
 
+def test_search_notion_respects_tag_prop_and_avoids_overwriting_by_subsequent_select():
+    """Test Issue #5: verify search_notion respects tag_prop and does not let other select fields overwrite it."""
+    client = MagicMock()
+    client.databases.query.return_value = {
+        "results": [
+            {
+                "id": "page-multi-select",
+                "properties": {
+                    "Name": {
+                        "type": "title",
+                        "title": [{"plain_text": "Q4 Roadmap"}],
+                    },
+                    "Subject": {
+                        "type": "select",
+                        "select": {"name": "Work"},
+                    },
+                    "Priority": {
+                        "type": "select",
+                        "select": {"name": "High"},
+                    },
+                    "Status": {
+                        "type": "select",
+                        "select": {"name": "In Progress"},
+                    },
+                },
+            }
+        ]
+    }
+    res = search_notion(
+        query="",
+        subject="Work",
+        notion_client=client,
+        database_id="db-123",
+        tag_prop="Subject",
+    )
+    assert len(res) == 1
+    assert res[0]["id"] == "page-multi-select"
+    assert res[0]["subject"] == "Work"
+
+    res_no_match = search_notion(
+        query="",
+        subject="In Progress",
+        notion_client=client,
+        database_id="db-123",
+        tag_prop="Subject",
+    )
+    assert len(res_no_match) == 0
+
+    res_fallback = search_notion(
+        query="",
+        subject="",
+        notion_client=client,
+        database_id="db-123",
+        tag_prop=None,
+    )
+    assert len(res_fallback) == 1
+    assert res_fallback[0]["subject"] in ("Work", "High", "In Progress")
+
 
 def test_append_to_page_tool(mock_notion_client):
     """Test append_to_page tool appends heading, rationale, and image block."""
