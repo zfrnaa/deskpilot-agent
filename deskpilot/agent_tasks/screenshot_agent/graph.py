@@ -26,6 +26,7 @@ from deskpilot.agent_tasks.screenshot_agent.state import (
 )
 from deskpilot.agent_tasks.screenshot_agent.vision import (
     get_default_vision_llm,
+    sanitize_cluster_tag,
     triage_screenshots,
 )
 from deskpilot.config import ScreenshotDestinationsConfig, Settings
@@ -245,13 +246,15 @@ def notion_sync(
     if store is not None and approved:
         try:
             for item in items:
-                cluster_tag = item.cluster_tag or "General"
-                if cluster_tag in approved:
-                    store.put(
-                        ("screenshots", "routing_preferences"),
-                        key=cluster_tag,
-                        value={"classification": item.classification, "cluster_tag": cluster_tag},
-                    )
+                raw_tag = item.cluster_tag or "General"
+                if raw_tag in approved:
+                    safe_tag = sanitize_cluster_tag(raw_tag, fallback="")
+                    if safe_tag and item.classification in SYNCABLE_CLASSIFICATIONS | {"LOCAL_KEEP"}:
+                        store.put(
+                            ("screenshots", "routing_preferences"),
+                            key=safe_tag,
+                            value={"classification": item.classification, "cluster_tag": safe_tag},
+                        )
         except Exception as e:
             logger.debug("Failed to persist routing preferences to store: %s", e)
 

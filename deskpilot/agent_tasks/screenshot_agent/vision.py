@@ -215,6 +215,32 @@ def _snap_tag_to_available(tag: str, available_tags: list[str]) -> str:
     return tag_clean
 
 
+_SAFE_CLUSTER_TAG_RE = re.compile(r"^[A-Za-z0-9 _/&+.\-]{1,40}$")
+_VALID_CLASSIFICATIONS = {"WORK_NOTES", "DUE_DILIGENCE", "BRAINSTORM", "LOCAL_KEEP", "NOTION_NOTE"}
+
+
+def sanitize_cluster_tag(tag: Any, fallback: str = "General") -> str:
+    """Sanitize a cluster tag so untrusted OCR/vision text cannot inject prompt directives."""
+    if not isinstance(tag, str):
+        return fallback
+    cleaned = re.sub(r"[\r\n\t\x00-\x1f\x7f]+", " ", tag).strip()
+    if not cleaned:
+        return fallback
+    if not _SAFE_CLUSTER_TAG_RE.fullmatch(cleaned):
+        return fallback
+    return cleaned
+
+
+def _sanitize_text_field(val: Any, default: str, max_len: int = 300) -> str:
+    """Strip control characters and bound length for untrusted vision output fields."""
+    if not isinstance(val, str):
+        return default
+    cleaned = re.sub(r"[\r\n\t\x00-\x1f\x7f]+", " ", val).strip()
+    if not cleaned:
+        return default
+    return cleaned[:max_len]
+
+
 def format_preferences(learned_preferences: dict[str, Any] | list[dict[str, Any]] | None) -> str:
     """Format stored user routing preferences into human-readable prompt lines."""
     if not learned_preferences:
@@ -222,21 +248,31 @@ def format_preferences(learned_preferences: dict[str, Any] | list[dict[str, Any]
     lines: list[str] = []
     if isinstance(learned_preferences, dict):
         for k, v in learned_preferences.items():
+            safe_k = sanitize_cluster_tag(str(k), fallback="")
+            if not safe_k:
+                continue
             if isinstance(v, dict):
-                cls_name = v.get("classification", "")
-                tag_name = v.get("cluster_tag", k)
-                lines.append(f"- '{k}': classify as {cls_name} (cluster tag: '{tag_name}')")
+                raw_cls = str(v.get("classification", "")).strip().upper()
+                cls_name = raw_cls if raw_cls in _VALID_CLASSIFICATIONS else "WORK_NOTES"
+                tag_name = sanitize_cluster_tag(v.get("cluster_tag", safe_k), fallback=safe_k)
+                lines.append(f"- '{safe_k}': classify as {cls_name} (cluster tag: '{tag_name}')")
             else:
-                lines.append(f"- '{k}': {v}")
+                safe_v = sanitize_cluster_tag(str(v), fallback="")
+                if safe_v:
+                    lines.append(f"- '{safe_k}': {safe_v}")
     elif isinstance(learned_preferences, list):
         for entry in learned_preferences:
             if isinstance(entry, dict):
-                cls_name = entry.get("classification", "")
-                tag_name = entry.get("cluster_tag", "")
-                key_name = entry.get("key", tag_name)
-                lines.append(f"- '{key_name}': classify as {cls_name} (cluster tag: '{tag_name}')")
+                raw_cls = str(entry.get("classification", "")).strip().upper()
+                cls_name = raw_cls if raw_cls in _VALID_CLASSIFICATIONS else "WORK_NOTES"
+                tag_name = sanitize_cluster_tag(entry.get("cluster_tag", ""), fallback="")
+                key_name = sanitize_cluster_tag(entry.get("key", tag_name), fallback=tag_name)
+                if key_name or tag_name:
+                    lines.append(f"- '{key_name}': classify as {cls_name} (cluster tag: '{tag_name}')")
             else:
-                lines.append(f"- {entry}")
+                safe_entry = sanitize_cluster_tag(str(entry), fallback="")
+                if safe_entry:
+                    lines.append(f"- {safe_entry}")
     return "\n".join(lines)
 
 
@@ -283,12 +319,12 @@ def classify_screenshot(
                 cls_val = res.get("classification", item.classification)
                 if cls_val in valid_classifications:
                     item.classification = cls_val
-                item.title = res.get("title", item.title)
+                item.title = _sanitize_text_field(res.get("title", item.title), default=item.title or "Screenshot Note", max_len=150)
                 c_tag = res.get("cluster_tag", item.cluster_tag)
                 if available_tags and c_tag:
                     c_tag = _snap_tag_to_available(c_tag, available_tags)
-                item.cluster_tag = c_tag
-                item.rationale = res.get("rationale", item.rationale)
+                item.cluster_tag = sanitize_cluster_tag(c_tag, fallback=fallback_tag)
+                item.rationale = _sanitize_text_field(res.get("rationale", item.rationale), default=item.rationale or "", max_len=400)
                 return item
         except Exception as e:
             item.classification = "LOCAL_KEEP"
@@ -469,11 +505,22 @@ def parse_vision_response(
         raw_tag = str(parsed_dict.get("cluster_tag") or fallback_tag)
         if available_tags:
             raw_tag = _snap_tag_to_available(raw_tag, available_tags)
+        safe_tag = sanitize_cluster_tag(raw_tag, fallback=fallback_tag)
+        safe_title = _sanitize_text_field(
+            parsed_dict.get("title"),
+            default=filename or "Screenshot Note",
+            max_len=150,
+        )
+        safe_rationale = _sanitize_text_field(
+            parsed_dict.get("rationale"),
+            default="Classified from vision response",
+            max_len=400,
+        )
         return {
             "classification": classification,
-            "title": str(parsed_dict.get("title") or filename or "Screenshot Note"),
-            "cluster_tag": raw_tag,
-            "rationale": str(parsed_dict.get("rationale") or "Classified from vision response"),
+            "title": safe_title,
+            "cluster_tag": safe_tag,
+            "rationale": safe_rationale,
         }
 
     return {
