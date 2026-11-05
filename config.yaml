@@ -68,4 +68,11 @@ voice:
   lang: en-us
   device: null       # null uses Windows default, or specify e.g. "Speaker" or "Corsair"
 
+# Autonomous background watcher daemon (screenshot threshold & downloads cadence)
+daemon:
+  enabled: true
+  poll_interval_seconds: 300
+  screenshot_threshold: 10
+  downloads_cadence_days: 5
+
 

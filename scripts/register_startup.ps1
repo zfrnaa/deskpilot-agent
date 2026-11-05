@@ -172,6 +172,30 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
                     -Force | Out-Null
 
                 Write-Host "[OK] Scheduled task '$TaskName' registered successfully." -ForegroundColor Green
+
+                # Also register background autonomous watcher daemon
+                try {
+                    $powershellExe = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
+                    if (-not $powershellExe) { $powershellExe = "powershell.exe" }
+                    $daemonArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$WorkingDirectory'; & '$uvPath' run --directory '$WorkingDirectory' deskpilot --daemon`""
+                    $daemonAction = New-ScheduledTaskAction -Execute $powershellExe -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
+                    $daemonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+                    $daemonPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel $runLevel
+                    $daemonSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+
+                    Register-ScheduledTask `
+                        -TaskName "DeskPilotDaemon" `
+                        -Action $daemonAction `
+                        -Trigger $daemonTrigger `
+                        -Principal $daemonPrincipal `
+                        -Settings $daemonSettings `
+                        -Description "DeskPilot Background Autonomous Watcher Daemon" `
+                        -Force | Out-Null
+
+                    Write-Host "[OK] Scheduled task 'DeskPilotDaemon' registered successfully." -ForegroundColor Green
+                } catch {
+                    Write-Warning "Could not register background daemon task: $_"
+                }
             }
         } catch {
             Write-Warning "PowerShell Register-ScheduledTask failed: $_. Attempting schtasks.exe fallback..."
@@ -246,9 +270,9 @@ try {
     }
     
     if ($wtPath) {
-        $handlerCmd = "`"$wtPath`" -w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot"
+        $handlerCmd = "`"$wtPath`" -w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot --tui"
     } else {
-        $handlerCmd = "`"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot"
+        $handlerCmd = "`"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot --tui"
     }
     Set-ItemProperty -Path $protocolCmd -Name "(Default)" -Value $handlerCmd
     Write-Host "[OK] 'deskpilot://' protocol handler registered successfully." -ForegroundColor Green

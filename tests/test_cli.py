@@ -792,6 +792,41 @@ def test_main_entrypoint_parses_startup_argument():
         mock_main_async.assert_awaited_once_with(startup=True)
         mock_exit.assert_called_once_with(0)
 
+def test_main_entrypoint_parses_daemon_argument():
+    """Verify that main parses --daemon argument and invokes run_daemon_loop."""
+    with (
+        patch("deskpilot.daemon.run_daemon_loop", new_callable=AsyncMock) as mock_daemon,
+        patch("deskpilot.cli.sys.exit") as mock_exit,
+    ):
+        mock_daemon.return_value = 0
+        main(["--daemon"])
+        mock_daemon.assert_awaited_once()
+        mock_exit.assert_called_once_with(0)
+
+
+def test_main_entrypoint_defaults_to_tui_for_interactive_session():
+    """Verify that running plain deskpilot defaults to use_tui=True."""
+    with (
+        patch("deskpilot.cli.main_async", new_callable=AsyncMock) as mock_main_async,
+        patch("deskpilot.cli.sys.exit") as mock_exit,
+    ):
+        mock_main_async.return_value = 0
+        main([])
+        mock_main_async.assert_awaited_once_with(startup=False, use_tui=True)
+        mock_exit.assert_called_once_with(0)
+
+
+def test_main_entrypoint_respects_no_tui_flag():
+    """Verify that running deskpilot --no-tui passes use_tui=False."""
+    with (
+        patch("deskpilot.cli.main_async", new_callable=AsyncMock) as mock_main_async,
+        patch("deskpilot.cli.sys.exit") as mock_exit,
+    ):
+        mock_main_async.return_value = 0
+        main(["--no-tui"])
+        mock_main_async.assert_awaited_once_with(startup=False, use_tui=False)
+        mock_exit.assert_called_once_with(0)
+
 
 def test_lazy_loading_of_langgraph_in_cli():
     """Verify that importing deskpilot.cli does NOT eagerly import langgraph."""

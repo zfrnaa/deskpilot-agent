@@ -89,6 +89,7 @@ async def run_daemon_tick(
             send_windows_toast(
                 title="DeskPilot Triage Alert",
                 message=f"Accumulated {result.screenshots_count} screenshots. Run DeskPilot triage to organize them into Notion/archive.",
+                action_command="deskpilot://open",
             )
 
     # 2. Inspect downloads cadence
@@ -97,7 +98,8 @@ async def run_daemon_tick(
         if send_notifications:
             send_windows_toast(
                 title="DeskPilot Downloads Maintenance",
-                message="It's been 5 days since your last downloads triage. Run DeskPilot to organize recent files.",
+                message=f"It's been {downloads_cadence_days} days since your last downloads triage. Run DeskPilot to organize recent files.",
+                action_command="deskpilot://open",
             )
         record_downloads_triage_run(store)
 

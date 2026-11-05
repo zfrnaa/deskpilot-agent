@@ -561,7 +561,19 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--tui",
         action="store_true",
+        default=None,
         help="Launch the full-screen interactive modern Bento TUI dashboard",
+    )
+    parser.add_argument(
+        "--no-tui",
+        action="store_false",
+        dest="tui",
+        help="Launch classic Rich terminal dashboard instead of TUI",
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Run autonomous background watcher daemon (screenshot threshold & downloads cadence)",
     )
     parsed, _ = parser.parse_known_args(args)
     return parsed
@@ -1216,7 +1228,24 @@ def main(args: list[str] | None = None) -> None:
     _configure_stdio()
     parsed = parse_args(args if args is not None else sys.argv[1:])
     try:
-        if parsed.storage_status:
+        if parsed.daemon:
+            from deskpilot.daemon import run_daemon_loop
+            from deskpilot.storage.store import get_store
+
+            settings = load_settings()
+            store = get_store(settings.get_resolved_storage_path())
+            sys.exit(
+                asyncio.run(
+                    run_daemon_loop(
+                        settings=settings,
+                        store=store,
+                        poll_interval_seconds=settings.daemon.poll_interval_seconds,
+                        screenshot_threshold=settings.daemon.screenshot_threshold,
+                        downloads_cadence_days=settings.daemon.downloads_cadence_days,
+                    )
+                )
+            )
+        elif parsed.storage_status:
             sys.exit(asyncio.run(main_async(storage_status=True)))
         elif parsed.check_tracing:
             sys.exit(asyncio.run(main_async(check_tracing=True)))
@@ -1231,10 +1260,17 @@ def main(args: list[str] | None = None) -> None:
                 )
             )
         else:
-            if getattr(parsed, "tui", False):
-                sys.exit(asyncio.run(main_async(startup=parsed.startup, use_tui=True)))
+            if parsed.tui is True:
+                use_tui = True
+            elif parsed.tui is False:
+                use_tui = False
             else:
-                sys.exit(asyncio.run(main_async(startup=parsed.startup)))
+                use_tui = not parsed.startup
+
+            if parsed.startup and parsed.tui is None:
+                sys.exit(asyncio.run(main_async(startup=True)))
+            else:
+                sys.exit(asyncio.run(main_async(startup=parsed.startup, use_tui=use_tui)))
     except KeyboardInterrupt:
         sys.exit(0)
 

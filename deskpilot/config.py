@@ -246,6 +246,15 @@ class NewsConfig(BaseModel):
     enabled: bool = True
 
 
+class DaemonConfig(BaseModel):
+    """Configuration for autonomous watcher daemon."""
+
+    enabled: bool = True
+    poll_interval_seconds: int = 300
+    screenshot_threshold: int = 10
+    downloads_cadence_days: int = 5
+
+
 class Settings(BaseSettings):
     """Global configuration settings for DeskPilot."""
 
@@ -267,6 +276,7 @@ class Settings(BaseSettings):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     news: NewsConfig = Field(default_factory=NewsConfig)
+    daemon: DaemonConfig = Field(default_factory=DaemonConfig)
 
     # Top-level API keys and telemetry settings
     gemini_api_key: str = ""
