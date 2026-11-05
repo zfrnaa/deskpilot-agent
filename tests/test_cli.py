@@ -137,13 +137,15 @@ async def test_run_phase1_boot_sequence_runs_concurrently():
         patch("deskpilot.cli.clean_temp_directory", side_effect=slow_task),
         patch("deskpilot.cli.check_winget_updates", side_effect=slow_task),
         patch("deskpilot.cli.fetch_today_agenda", side_effect=slow_task),
+        patch("deskpilot.boot_tasks.news_digest.fetch_morning_news", side_effect=slow_task),
     ):
         start = time.perf_counter()
         state = await run_phase1_boot_sequence(settings)
         elapsed = time.perf_counter() - start
 
-        # If sequential, 3 * 0.05 = 0.15s. If concurrent, ~0.05s - 0.12s.
-        assert elapsed < 0.14, f"Tasks took {elapsed:.3f}s, expected concurrent execution"
+        # If sequential, 4 * 0.05 = 0.20s (+ import & SQLite maintenance overhead).
+        # If concurrent, sleep is ~0.05s while sequential would take > 0.25s.
+        assert elapsed < 0.25, f"Tasks took {elapsed:.3f}s, expected concurrent execution"
         assert state is not None
 
 
