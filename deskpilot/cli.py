@@ -28,6 +28,7 @@ from deskpilot.boot_tasks import (
     clean_temp_directory,
     fetch_today_agenda,
     run_calendar_oauth_flow,
+    run_deep_systemcare_hygiene,
 )
 from deskpilot.config import Settings, load_settings
 from deskpilot.state import BootState, format_bytes
@@ -126,11 +127,27 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
         temp_res, winget_res, cal_res = results
         state.morning_news = None
 
-    # 1. System hygiene
+    # 1. System hygiene (Daily 24h Temp + Auto Monthly SystemCare if 30 days elapsed)
     if isinstance(temp_res, Exception):
         state.add_error(f"System hygiene task failed: {temp_res}")
     else:
         state.system_hygiene = temp_res
+        if (
+            getattr(settings.temp_cleaner, "monthly_deep_clean_enabled", False)
+            and getattr(settings, "storage", None)
+            and settings.storage.enabled
+        ):
+            try:
+                from deskpilot.daemon import record_monthly_hygiene_run, should_trigger_monthly_hygiene
+                from deskpilot.storage.store import get_store
+
+                store = get_store(settings.get_resolved_storage_path())
+                if should_trigger_monthly_hygiene(store, cadence_days=settings.temp_cleaner.monthly_cadence_days):
+                    deep_res = await run_deep_systemcare_hygiene(config=settings.temp_cleaner)
+                    state.system_hygiene.merge(deep_res)
+                    record_monthly_hygiene_run(store)
+            except Exception as exc:
+                state.add_error(f"Monthly deep SystemCare check failed: {exc}")
 
     # 2. Winget updates
     if isinstance(winget_res, Exception):
@@ -195,6 +212,10 @@ def _create_hygiene_panel(state: BootState, unicode_ok: bool = True) -> Panel:
         "",
         f"[dim]Items Purged:[/dim] [bold cyan]{sh.files_removed}[/bold cyan] [dim]files[/dim] {sep} [bold cyan]{sh.dirs_removed}[/bold cyan] [dim]dirs[/dim]",
     ]
+    if sh.monthly_deep_ran or sh.privacy_traces_cleared > 0 or sh.registry_entries_cleaned > 0:
+        lines.append(
+            f"[dim]SystemCare:[/dim] [bold magenta]{sh.privacy_traces_cleared}[/bold magenta] [dim]privacy traces[/dim] {sep} [bold magenta]{sh.registry_entries_cleaned}[/bold magenta] [dim]registry keys[/dim]"
+        )
     if sh.errors:
         lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] [dim]{sh.errors[0]}[/dim]")
 
@@ -447,9 +468,9 @@ def render_dashboard(
 def normalize_menu_choice(raw: str) -> str:
     """Normalize input choice by stripping whitespace, BOM markers, and brackets."""
     clean = raw.strip().strip("'\"").strip("\ufeff\xef\xbb\xbf\x00 ")
-    if clean in {"0", "1", "2", "3", "4", "5", "6"}:
+    if clean in {"0", "1", "2", "3", "4", "5", "6", "7"}:
         return clean
-    digits = [ch for ch in clean if ch in "0123456"]
+    digits = [ch for ch in clean if ch in "01234567"]
     if len(digits) == 1:
         return digits[0]
     return clean
@@ -497,6 +518,10 @@ def prompt_action_menu(
         f"Run Agent Evaluations  [dim]• LangSmith Benchmark[/dim]",
     )
     menu_table.add_row(
+        "[bold cyan][7][/bold cyan]",
+        f"SystemCare Deep Clean  [dim]• Privacy Sweep, Junk Clean & Safe Registry Hygiene[/dim]",
+    )
+    menu_table.add_row(
         "[bold yellow][0][/bold yellow]",
         "[dim]Dismiss & Exit[/dim]",
     )
@@ -510,8 +535,8 @@ def prompt_action_menu(
         )
     )
     prompt_glyph = ui_theme.GLYPH_PROMPT if unicode_ok else ">"
-    selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
-    if selection in {"0", "1", "2", "3", "4", "5", "6"} and voice_enabled:
+    selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-7]: "))
+    if selection in {"0", "1", "2", "3", "4", "5", "6", "7"} and voice_enabled:
         try:
             from deskpilot.voice import play_chime_in_background
 
@@ -1066,8 +1091,48 @@ async def execute_menu_action(
         except Exception as e:
             c.print(f"[red]Agent Evaluations failed: {e}[/red]")
         return True
+    elif normalized_choice == "7":
+        from deskpilot.ui.pipeline import render_pipeline
+        unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
+        c.print(
+            render_pipeline(
+                ["Temp & Dumps", "Junk Caches", "Privacy Sweep", "Registry Hygiene"],
+                current_index=0,
+                status_msg="Running 3-in-1 SystemCare Deep Clean (Junk, Privacy & Safe Registry)...",
+                unicode_ok=unicode_ok,
+                title="SystemCare Deep Hygiene Pipeline",
+            )
+        )
+        try:
+            cfg = settings or load_settings()
+            deep_res = await run_deep_systemcare_hygiene(config=cfg.temp_cleaner)
+            if state is not None:
+                state.system_hygiene = deep_res
+
+            if getattr(cfg, "storage", None) and cfg.storage.enabled:
+                try:
+                    from deskpilot.daemon import record_monthly_hygiene_run
+                    from deskpilot.storage.store import get_store
+                    store = get_store(cfg.get_resolved_storage_path())
+                    record_monthly_hygiene_run(store)
+                except Exception:
+                    pass
+
+            freed = format_bytes(deep_res.bytes_freed)
+            c.print(
+                Panel(
+                    f"[bold green]✓ Junk & Temp Freed:[/bold green] {freed} ({deep_res.files_removed} files, {deep_res.dirs_removed} dirs)\n"
+                    f"[bold cyan]✓ Privacy Traces Swept:[/bold cyan] {deep_res.privacy_traces_cleared} stale items\n"
+                    f"[bold magenta]✓ Dead Registry Entries Pruned:[/bold magenta] {deep_res.registry_entries_cleaned} keys",
+                    title="[bold green]SystemCare Deep Clean Complete[/bold green]",
+                    border_style="green",
+                )
+            )
+        except Exception as e:
+            c.print(f"[red]SystemCare Deep Clean failed: {e}[/red]")
+        return True
     else:
-        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 6.[/bold red]")
+        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 7.[/bold red]")
         return True
 
 
@@ -1151,7 +1216,7 @@ async def main_async(
 
         # In startup mode, wait for the background voice briefing to finish before process termination
         if voice_worker is not None and getattr(voice_worker, "is_alive", None) and voice_worker.is_alive():
-            voice_worker.join(timeout=20.0)
+            voice_worker.join(timeout=90.0)
         return 0
 
 

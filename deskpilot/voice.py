@@ -258,7 +258,7 @@ def summarize_boot_for_voice(state: BootState) -> str:
     )
     from deskpilot.state import format_bytes
 
-    parts: list[str] = ["Good day, here is your morning briefing."]
+    parts: list[str] = ["Good day, here is your system briefing."]
 
     # 1. System hygiene
     sh = state.system_hygiene
@@ -298,7 +298,7 @@ def summarize_boot_for_voice(state: BootState) -> str:
     # 4. Today news headlines
     mn = getattr(state, "morning_news", None)
     if mn is not None and getattr(mn, "headlines", None):
-        parts.append("Here are your top five morning news headlines:")
+        parts.append("Here are your top five news headlines:")
         for item in mn.headlines[:5]:
             parts.append(f"{item.topic}: {item.title}.")
 

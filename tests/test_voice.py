@@ -40,7 +40,7 @@ def test_summarize_boot_full():
         ),
     )
     summary = summarize_boot_for_voice(state)
-    assert "Good day, here is your morning briefing" in summary
+    assert "Good day, here is your system briefing" in summary
     assert "Cleaned 50.0 MB" in summary
     assert "16 software packages are ready to be updated" in summary
     assert "Design Review at 02:30 PM" in summary
