@@ -55,6 +55,18 @@ def is_file_locked(path: Path) -> bool:
         return True
 
 
+def _is_link_or_junction(path: Path) -> bool:
+    """Return True if path is a symbolic link or Windows NTFS directory junction."""
+    try:
+        if path.is_symlink():
+            return True
+        if hasattr(path, "is_junction") and path.is_junction():
+            return True
+    except OSError:
+        return True
+    return False
+
+
 def _clean_directory_tree_sync(
     dir_path: Path,
     max_age_hours: int,
@@ -79,12 +91,16 @@ def _clean_directory_tree_sync(
     would_remove_files: set[Path] = set()
     would_remove_dirs: set[Path] = set()
 
-    for root_str, _, files in os.walk(dir_path, topdown=False):
+    for root_str, _, files in os.walk(dir_path, topdown=False, followlinks=False):
         root_dir = Path(root_str)
+        if root_dir != dir_path and _is_link_or_junction(root_dir):
+            continue
 
         # 1. Clean eligible files in current directory
         for file_name in files:
             file_path = root_dir / file_name
+            if _is_link_or_junction(file_path):
+                continue
             try:
                 stat_result = file_path.lstat()
             except OSError as e:
@@ -120,7 +136,7 @@ def _clean_directory_tree_sync(
                     errors.append(f"Failed to delete {file_path}: {e}")
 
         # 2. Clean empty directories if enabled
-        if delete_empty_dirs and root_dir != dir_path:
+        if delete_empty_dirs and root_dir != dir_path and not _is_link_or_junction(root_dir):
             if dry_run:
                 try:
                     remaining = [
@@ -220,17 +236,22 @@ def _clean_antigravity_orphans_sync(
         return result
 
     brain_dir = base_dir / "brain"
-    if brain_dir.exists() and brain_dir.is_dir():
+    if brain_dir.exists() and brain_dir.is_dir() and not _is_link_or_junction(brain_dir):
         for item in brain_dir.iterdir():
+            if _is_link_or_junction(item):
+                continue
             if item.is_dir() and item.name not in active_ids:
                 dir_bytes = 0
                 dir_files = 0
                 try:
-                    for root, _, files in os.walk(item):
+                    for root, dirs, files in os.walk(item, followlinks=False):
+                        dirs[:] = [d for d in dirs if not _is_link_or_junction(Path(root) / d)]
                         for f in files:
                             fp = Path(root) / f
+                            if _is_link_or_junction(fp):
+                                continue
                             try:
-                                dir_bytes += fp.stat().st_size
+                                dir_bytes += fp.lstat().st_size
                                 dir_files += 1
                             except OSError:
                                 pass
@@ -247,8 +268,10 @@ def _clean_antigravity_orphans_sync(
                     result.errors.append(f"Failed to prune orphaned brain {item.name}: {err}")
 
     conv_dir = base_dir / "conversations"
-    if conv_dir.exists() and conv_dir.is_dir():
+    if conv_dir.exists() and conv_dir.is_dir() and not _is_link_or_junction(conv_dir):
         for db_file in conv_dir.glob("*.db"):
+            if _is_link_or_junction(db_file):
+                continue
             if db_file.stem not in active_ids:
                 try:
                     size = db_file.stat().st_size

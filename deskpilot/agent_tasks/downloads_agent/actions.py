@@ -85,7 +85,9 @@ def scan_directory(downloads_dir: Path) -> tuple[list[DownloadItem], list[str]]:
 
     try:
         for entry in path.iterdir():
-            # Skip subdirectories (such as Archive) - only triage top-level files
+            # Skip subdirectories (such as Archive) and symlinks - only triage regular top-level files
+            if entry.is_symlink() or (hasattr(entry, "is_junction") and entry.is_junction()):
+                continue
             if entry.is_file():
                 try:
                     stat = entry.stat()

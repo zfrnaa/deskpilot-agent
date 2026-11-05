@@ -315,3 +315,27 @@ def test_junk_and_privacy_sweep(tmp_path: Path):
     # 3. Registry exe path extractor
     p1 = _extract_exe_from_command(r'"C:\Program Files\App\app.exe" --minimized')
     assert p1 == Path(r"C:\Program Files\App\app.exe")
+
+
+def test_clean_antigravity_orphans_skips_symlinks_and_junctions(tmp_path: Path):
+    import sqlite3
+    from deskpilot.boot_tasks.system_hygiene import _clean_antigravity_orphans_sync
+
+    ag_dir = tmp_path / ".gemini" / "antigravity"
+    ag_dir.mkdir(parents=True)
+    db_path = ag_dir / "conversation_summaries.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY);")
+    conn.commit()
+    conn.close()
+
+    brain_dir = ag_dir / "brain"
+    linked_orphan = brain_dir / "linked-orphan"
+    linked_orphan.mkdir(parents=True)
+    (linked_orphan / "important.txt").write_text("do not delete")
+
+    with patch("deskpilot.boot_tasks.system_hygiene._is_link_or_junction", return_value=True):
+        res = _clean_antigravity_orphans_sync(ag_dir, dry_run=False)
+        assert res.dirs_removed == 0
+        assert (linked_orphan / "important.txt").exists()
+
