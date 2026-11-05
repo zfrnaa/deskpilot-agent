@@ -1,18 +1,30 @@
 # DeskPilot
 
-> **Personal Multi-Agent Morning Command Center & Boot Orchestrator**
+> **Your personal morning routine on autopilot.**
 
-DeskPilot is an intelligent personal productivity orchestrator designed to run upon logging into your computer. It pairs **sub-second parallel morning hygiene checks** with **on-demand LangGraph autonomous agents** and **local Kokoro neural voice briefings** to organize your digital workspace before you start your day.
+Every time you log into your computer, DeskPilot cleans up system clutter, checks for software updates, and speaks your daily agenda—all in under a second.
+
+When you're ready, trigger on-demand AI agents to triage scattered screenshots into Notion, safely organize messy downloads with review checkpoints, deep-clean system junk, and audit your browser bookmarks without lifting a finger.
+
+---
+
+## Why DeskPilot?
+
+- **Starts in Under 1 Second**: No waiting for heavy AI models to load on boot. Local hygiene tasks run concurrently in milliseconds, complete with an optional spoken morning briefing.
+- **AI Only When You Want It**: Intelligent multi-modal agents (screenshot categorization, downloads cleanup, reading digest) run strictly on demand when you pick them from the menu.
+- **3-in-1 SystemCare Deep Clean**: Safely purges gigabytes of stale developer caches (npm, uv, pip), browser junk, privacy traces, and broken registry references—automatically triggered every 30 days or on demand.
+- **Zero Risk to Your Files**: Destructive actions require your explicit green light. Screenshots are only deleted locally after Notion confirms they are safely saved, and downloads are never moved or deleted without terminal confirmation.
+- **Ready Out of the Box**: You do not need any API keys or external accounts to clean `%TEMP%` files, inspect software updates, or use the morning terminal dashboard.
 
 ---
 
 ## Table of Contents
 
+- [Terminal Dashboard Preview](#terminal-dashboard-preview)
 - [Architecture Overview](#architecture-overview)
 - [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Core Features](#core-features)
-- [Terminal Dashboard Preview](#terminal-dashboard-preview)
 - [Prerequisites](#prerequisites)
 - [Quickstart Guide](#quickstart-guide)
 - [Service Integrations Setup](#service-integrations-setup)
@@ -23,12 +35,27 @@ DeskPilot is an intelligent personal productivity orchestrator designed to run u
 
 ---
 
+## Terminal Dashboard Preview
+
+DeskPilot launches with an interactive **Bento TUI dashboard** (System Hygiene, Package Updates, and Today's Agenda) with live LangSmith diagnostics and an intuitive action dock:
+
+![Dashboard Preview](assets/DeskPilotDashboard.png)
+
+and here is the Notification Toast that greets you on Windows logon:
+
+![Startup Notification Toast](assets/DeskPilotToast.png)
+
+> [!TIP]
+> **On-Demand Floorp View**: When you select option `[3]`, the bookmark auditor runs on demand without slowing down your initial boot. When bookmarks data is present, the dashboard seamlessly expands to a 2x2 grid displaying the Floorp Bookmarks panel alongside System Hygiene, Winget, and Calendar.
+
+---
+
 ## Architecture Overview
 
 DeskPilot utilizes a **dual-layer architecture**:
 
-1. **Layer 1: Sub-Second Boot & Fast Hygiene Layer** &mdash; Runs fast, local hygiene tasks concurrently using `asyncio.gather`. Does not import heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times (<1s).
-2. **Layer 2: Autonomous Agent & State Persistence Layer** &mdash; Dynamically loaded only on demand when triggered by user selection. Powered by LangGraph state machines, multi-modal LLMs (Google Gemini Vision), ReAct consolidation agents with adversarial schema interceptors, and native checkpointers (`MemorySaver` / SQLite persistence) enabling **Human-in-the-Loop (HITL) pause breakpoints, state inspection, and time-travel resumption**.
+1. **Layer 1: Sub-Second Boot & Fast Hygiene Layer** &mdash; Runs fast, local hygiene tasks concurrently using `asyncio.gather`. Does not import heavy LLM or LangGraph libraries on startup to ensure instant terminal boot times (<1s). Includes a 30-day automatic cadence for deep system care.
+2. **Layer 2: Autonomous Agent & State Persistence Layer** &mdash; Dynamically loaded only on demand when triggered by user selection or the background watcher daemon. Powered by LangGraph state machines, multi-modal LLMs (Google Gemini Vision), ReAct consolidation agents with adversarial schema interceptors, and native checkpointers (`MemorySaver` / SQLite persistence) enabling **Human-in-the-Loop (HITL) pause breakpoints, state inspection, and time-travel resumption**.
 
 <p align="center">
   <img src="assets/architecture.svg" alt="DeskPilot System Architecture" width="100%" />
@@ -47,7 +74,8 @@ flowchart LR
 
     subgraph INGRESS [" Ingress "]
         Logon["Windows Logon<br/>Task Scheduler / Toast"]:::boundary
-        Terminal["User CLI Shell<br/>uv run deskpilot"]:::boundary
+        Daemon["Background Watcher<br/>uv run deskpilot --daemon"]:::boundary
+        Terminal["User CLI / Bento TUI<br/>uv run deskpilot"]:::boundary
     end
 
     CLI["DeskPilot Core<br/>Orchestrator"]:::core
@@ -55,12 +83,12 @@ flowchart LR
     subgraph LAYER1 [" Layer 1: Fast Boot (<1s) "]
         direction TB
         P1["Parallel Boot<br/>asyncio.gather"]:::phase
-        P1 --> TempClean["%TEMP% Cleaner"]:::boundary
+        P1 --> TempClean["%TEMP% & Monthly SystemCare"]:::boundary
         P1 --> WingetCheck["Winget Query"]:::boundary
         P1 --> GCal["GCalendar Sync"]:::boundary
     end
 
-    Dash["Rich Terminal UI<br/>Morning Dashboard"]:::boundary
+    Dash["Bento TUI & Rich UI<br/>Morning Dashboard"]:::boundary
 
     subgraph LAYER2 [" Layer 2: LangGraph Agent & State Persistence "]
         direction TB
@@ -68,6 +96,7 @@ flowchart LR
         DHA["Downloads Hygiene<br/>HITL Checkpointer + Time-Travel"]:::phase
         FBA["Floorp Bookmarks<br/>places.sqlite (ro)"]:::phase
         RLA["Read-Later Digest<br/>Daily Priority Pick"]:::phase
+        SCD["SystemCare Deep Clean<br/>Junk, Privacy & Safe Registry"]:::phase
         EVAL["LangSmith Evals<br/>Benchmark Suite"]:::phase
     end
 
@@ -75,13 +104,13 @@ flowchart LR
         direction TB
         EXT_GEMINI["Google Gemini API"]:::service
         EXT_NOTION["Notion Workspace"]:::service
-        EXT_DISK["Local Filesystem"]:::service
+        EXT_DISK["Local Filesystem & Registry"]:::service
         EXT_STORE["SQLite State DB"]:::service
         EXT_VOICE["Kokoro ONNX TTS"]:::service
         EXT_SMITH["LangSmith Tracing"]:::service
     end
 
-    Logon & Terminal --> CLI
+    Logon & Daemon & Terminal --> CLI
     CLI --> P1
     TempClean & WingetCheck & GCal --> Dash
     Dash -->|User Selection| LAYER2
@@ -89,6 +118,7 @@ flowchart LR
     STA --> EXT_GEMINI & EXT_NOTION & EXT_DISK
     DHA --> EXT_DISK & EXT_STORE
     RLA --> EXT_NOTION
+    SCD --> EXT_DISK
     EVAL --> EXT_SMITH
 ```
 
@@ -102,7 +132,7 @@ flowchart LR
 - **Agent Orchestration:** LangGraph (StateGraph, `MemorySaver`, HITL `interrupt_before`) & LangChain Core
 - **LLM & Multi-Modal Vision:** Google Gemini Vision via `google-genai` / `langchain-google-genai`
 - **Voice Synthesis:** Kokoro-ONNX neural TTS engine with local ONNX runtime & Windows audio device routing
-- **Terminal Presentation:** [Rich](https://github.com/Textualize/rich) (`Console`, `Live`, `Table`, `Panel`, `Grid`)
+- **Terminal Presentation:** Modern [Textual](https://github.com/Textualize/textual) Bento TUI & [Rich](https://github.com/Textualize/rich) (`Console`, `Live`, `Table`, `Panel`, `Grid`)
 - **Observability:** LangSmith (OTEL trace exports, dataset benchmarks, evaluators)
 - **Integrations:** Google Calendar API, Notion API (`@notionhq/client` with dynamic schema introspection), Windows Package Manager (`winget`), Floorp browser (`places.sqlite` immutable reader)
 
@@ -117,7 +147,8 @@ multi-agent-orchestrator-pers1/
 │   ├── boot_tasks/         # Layer 1 sub-second parallel hygiene (temp cleaner, winget, calendar)
 │   ├── evals/              # LangSmith deterministic benchmark datasets and evaluators
 │   ├── storage/            # Dual-layer SQLite persistence & thread checkpoint storage
-│   ├── ui/                 # Rich dashboard layouts, themes, and interactive renderers
+│   ├── ui/                 # Textual Bento TUI, Rich dashboard layouts, and interactive renderers
+│   ├── daemon.py           # Autonomous background watcher for screenshot and download cadences
 │   ├── voice.py            # Kokoro-ONNX neural TTS briefing and audio chimes
 │   ├── config.py           # Pydantic settings models and YAML configuration loader
 │   └── cli.py              # Application entrypoint, CLI arguments, and action menu
@@ -133,33 +164,21 @@ multi-agent-orchestrator-pers1/
 
 ### Fast Boot Sequence (Layer 1)
 - **Windows `%TEMP%` Cleaner**: Recursively purges temporary files older than 24 hours while safely tolerating locked Windows process handles.
-- **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom package exclusions (`AdvancedSystemCare`, `RevoUninstallerPro`, `DriverBooster`).
+- **Automatic 30-Day Cadence**: Silently runs deep junk and privacy maintenance every 30 days during boot to keep your machine fast without manual reminders.
+- **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom exclusions (`AdvancedSystemCare`, `RevoUninstallerPro`, `DriverBooster`).
 - **Google Calendar Agenda**: Fetches your daily schedule, displaying all-day events, meeting times, Google Meet locations, and token expiry warnings.
-- **Windows Toast & Protocol Ingress**: Emits lightweight Windows toast notifications on boot with action buttons and custom `deskpilot://` protocol handler registration for instant one-click terminal activation.
-- **Local Neural Voice Briefing (Kokoro-ONNX)**: Delivers natural spoken morning briefings covering agenda items and pending updates in the background without blocking terminal responsiveness.
+- **Windows Toast & Protocol Ingress**: Emits lightweight Windows notifications on boot with action buttons and custom `deskpilot://` protocol handler registration for instant one-click terminal activation.
+- **Spoken Morning Briefing (Kokoro-ONNX)**: Listens like a personal assistant. Kokoro-ONNX speaks your schedule and hygiene summary in the background through your speakers or headset while your terminal stays snappy.
 
-### Intelligent Autonomous Agents & State Layer (Layer 2)
-- **Screenshot Triage Agent (Option 1)**: Scans your Screenshots folder, analyzes images using Google Gemini Vision, categorizes them into smart clusters, and dynamically routes them to designated Notion targets (WorkNote database with dynamic schema introspection, Due Diligence Questionnaire page, Brainstorm Session page, or Local Keep) with strict safety guarantees (only confirmed synced items are cleaned locally). Powered by a **ReAct consolidation agent** with Pydantic input schemas and adversarial self-correction loops.
-- **Downloads Hygiene Agent & HITL Breakpoints (Option 2)**: Classifies downloads into installers, archives, code, documents, media, and images. Automatically proposes deleting stale installers (>30 days old) and archiving unorganized files. Supports **LangGraph checkpointer persistence (`MemorySaver`) with `interrupt_before=["execute_actions"]`, state snapshot inspection (`get_hygiene_state`), and time-travel resumption (`resume_downloads_hygiene`)**.
-- **On-Demand Floorp Bookmarks Auditor (Option 3)**: Decoupled from the boot sequence for sub-second startup; reads Floorp's `places.sqlite` in read-only immutable mode (`?immutable=1&mode=ro`) on demand, detecting noisy tracking parameters (UTMs, referral tags) and duplicate bookmark groups without browser locking.
+### Intelligent Autonomous Agents & Cleaners (Layer 2)
+- **Smart Screenshot Sorter (Option 1)**: Reads cluttered screenshots using Gemini Vision, identifies diagrams, work notes, or research items, and routes them to dedicated Notion destinations. It strictly preserves unapproved items locally and only cleans up screenshots that are verified as safely synced in Notion.
+- **Safe Downloads Cleaner with HITL Review (Option 2)**: Classifies downloads into installers, archives, code, documents, media, and images. Automatically flags stale installers (>30 days old) and unorganized files, then pauses at an explicit confirmation checkpoint so you can review and approve every change before anything moves on disk.
+- **Safe Floorp Bookmarks Auditor (Option 3)**: Finds duplicate bookmarks and strips noisy tracking tags (like UTM referral links). Connects in read-only immutable mode so you can audit bookmarks even while your browser is actively open.
 - **Interactive Winget Package Upgrade (Option 4)**: Interactive package upgrade CLI helper that automatically respects your configured exclusions (`ignore_packages`).
-- **Notion Read-Later Digest (Option 5)**: Curates daily unread reading recommendations from your Notion reading list ("The Read Later List"), prioritizing critical tags and oldest items with one-click status updates.
-- **LangSmith Agent Evaluations Suite (Option 6)**: Built-in deterministic benchmark and evaluation harness testing agent safety, categorization accuracy, and human-in-the-loop decisions in a safe isolated temporary directory sandbox without touching real user files.
-
----
-
-## Terminal Dashboard Preview
-
-DeskPilot launches with a clean **3-panel morning boot dashboard** (System Hygiene, Package Updates, and Today's Agenda) with live LangSmith tracing diagnostics and an expanded 7-option menu:
-
-![Dashboard Preview](assets/DeskPilotDashboard.png)
-
-and here is the Notification Toast that appears on Windows boot:
-
-![Startup Notification Toast](assets/DeskPilotToast.png)
-
-> [!TIP]
-> **On-Demand Floorp View**: When option `[3]` is selected, Floorp bookmarks audit executes on-demand without slowing down your initial boot. When bookmarks data is present, the dashboard seamlessly expands to a 2x2 grid displaying the Floorp Bookmarks panel alongside System Hygiene, Winget, and Calendar.
+- **Notion Read-Later Digest (Option 5)**: Curates daily unread reading recommendations from your Notion reading list ("The Read Later List"), prioritizing critical tags and oldest entries with one-click status updates.
+- **SystemCare Deep Clean (Option 6)**: 3-in-1 maintenance suite that sweeps developer/app junk caches (npm, uv, pip, shaders, browsers), clears Windows privacy traces (Jump Lists, recent documents), and safely removes dead registry run keys without touching system associations.
+- **Autonomous Watcher Daemon (`--daemon`)**: Background service that monitors your screenshot volume and downloads directory, automatically prompting or executing triage according to your configured thresholds.
+- **LangSmith Benchmark Suite (`--eval`)**: Deterministic evaluation harness testing agent safety, categorization accuracy, and human-in-the-loop decisions in a safe isolated temporary directory sandbox without touching real user files.
 
 ---
 
@@ -173,6 +192,10 @@ and here is the Notification Toast that appears on Windows boot:
 ---
 
 ## Quickstart Guide
+
+> [!NOTE]
+> **No API keys needed for the basic morning dashboard.**
+> You can run `uv run deskpilot` immediately to clean `%TEMP%` files and inspect Winget updates. Google Calendar, Notion, and Gemini Vision can be connected whenever you're ready.
 
 ### 1. Install `uv`
 If you haven't installed `uv` yet, run in PowerShell:
@@ -189,20 +212,26 @@ cd deskpilot
 uv sync
 ```
 
-### 3. Configure Settings
+### 3. Configure Settings (Optional)
 Copy `.env.example` to `.env`:
 ```powershell
 Copy-Item .env.example .env
 ```
-Edit `.env` and `config.yaml` to configure your API tokens and directories (see [Configuration Reference](#configuration-reference)).
+Edit `.env` and `config.yaml` to configure your API tokens and directories when you want to enable Calendar, Notion, or Gemini features (see [Configuration Reference](#configuration-reference)).
 
 ### 4. Run DeskPilot
 ```powershell
-# Interactive Command Center (Action Menu [0-6])
+# Interactive Command Center (Launches modern Bento TUI by default)
 uv run deskpilot
 
-# Non-interactive automated boot run (executes Layer 1 + background voice and exits)
+# Classic Terminal Dashboard (Bypasses Bento TUI)
+uv run deskpilot --no-tui
+
+# Silent logon boot run (Executes Layer 1 + background voice, then exits)
 uv run deskpilot --startup
+
+# Run autonomous background watcher daemon
+uv run deskpilot --daemon
 
 # Display SQLite cross-thread state persistence and checkpointer statistics
 uv run deskpilot --storage-status
@@ -210,7 +239,7 @@ uv run deskpilot --storage-status
 # Run LangSmith connectivity diagnostic
 uv run deskpilot --check-tracing
 
-# Run agent benchmark evaluations (local sandbox)
+# Run agent benchmark evaluations locally in isolated sandbox
 uv run deskpilot --eval --local-only
 
 # Run agent benchmark evaluations for downloads and upload results to LangSmith
@@ -295,14 +324,14 @@ DeskPilot includes PowerShell automation scripts in the `scripts/` directory to 
 ### Register Startup Task
 Run the registration script from PowerShell:
 ```powershell
-# Register interactive startup task (launches on logon)
+# Register silent logon startup task (runs boot hygiene & voice in background)
 .\scripts\register_startup.ps1
 
 # Register task with elevated privileges (Run as Administrator)
 .\scripts\register_startup.ps1 -RunAsAdmin
 
-# Register non-interactive background check
-.\scripts\register_startup.ps1 -StartupFlag
+# Launch interactive terminal window directly on logon instead of silent background
+.\scripts\register_startup.ps1 -StartupFlag:$false
 
 # Use Windows Startup folder shortcut instead of Task Scheduler
 .\scripts\register_startup.ps1 -Method StartupFolder
@@ -342,6 +371,7 @@ Environment variables override settings loaded from `config.yaml`:
 ## Safety & Privacy Guarantees
 
 - **Human-in-the-Loop (HITL) Checkpointer Breakpoints**: File operations are gated behind explicit LangGraph interruption boundaries (`interrupt_before=["execute_actions"]`). State snapshots can be inspected, audited, and adjusted before resuming (`resume_downloads_hygiene`), guaranteeing zero disk modifications without authorization.
+- **Safe Registry Pruning**: SystemCare deep clean prunes only broken MuiCache application entries and dead startup references. It never modifies system CLSIDs, file associations, or protected Windows keys.
 - **Adversarial Schema Validation & Self-Correction**: Notion tool execution is guarded by strict Pydantic models. Malformed arguments or missing UUIDs trigger structured feedback for the agent to self-correct before any network mutation occurs.
 - **Multi-Destination Screenshot Routing & Zero Unsynced Deletion**: The Screenshot Triage Agent **only** removes local screenshots that have been verified as successfully created and confirmed in their designated Notion destination (`is_synced == True`). Images classified as `LOCAL_KEEP` or unapproved clusters are strictly preserved locally and never deleted.
 - **Read-Only SQLite Locking**: The Floorp auditor connects to `places.sqlite` using `immutable=1&mode=ro` on demand. It never locks the database, allowing you to use your browser freely during audits.
