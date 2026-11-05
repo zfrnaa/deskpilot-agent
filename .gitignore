@@ -1,4 +1,4 @@
-﻿# Superpowers Scratch
+# Superpowers Scratch
 .superpowers/
 docs/
 
@@ -18,6 +18,14 @@ htmlcov/
 .env
 credentials.json
 token.json
+
+# Local Storage & Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+.deskpilot/
 
 # IDE / System
 .vscode/
