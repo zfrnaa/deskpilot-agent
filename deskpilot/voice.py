@@ -9,6 +9,7 @@ Provides conversational voice summaries for:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 import urllib.request
@@ -25,6 +26,10 @@ logger = logging.getLogger("deskpilot.voice")
 KOKORO_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
 KOKORO_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 
+# Pinned SHA-256 digests for model-files-v1.0 release artifacts
+KOKORO_MODEL_SHA256 = "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5"
+KOKORO_VOICES_SHA256 = "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+
 _kokoro_instance: Any = None
 _kokoro_lock = threading.RLock()
 _audio_lock = threading.RLock()
@@ -32,6 +37,13 @@ _audio_lock = threading.RLock()
 # Minimal expected sizes in bytes to verify download integrity
 MIN_MODEL_SIZE = 100_000_000   # ~325 MB full
 MIN_VOICES_SIZE = 10_000_000   # ~28 MB full
+
+
+def _verify_sha256(file_path: Path, expected_sha256: str) -> bool:
+    """Verify that file_path matches expected_sha256 (case-insensitive hex)."""
+    with file_path.open("rb") as fh:
+        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    return digest.lower() == expected_sha256.strip().lower()
 
 
 def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
@@ -51,6 +63,8 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
             urllib.request.urlretrieve(KOKORO_MODEL_URL, tmp_model)
             if tmp_model.stat().st_size < MIN_MODEL_SIZE:
                 raise OSError(f"Downloaded model file incomplete: {tmp_model.stat().st_size} bytes")
+            if not _verify_sha256(tmp_model, KOKORO_MODEL_SHA256):
+                raise OSError("Downloaded Kokoro ONNX model failed SHA-256 integrity verification")
             tmp_model.replace(model_path)
             logger.info("Kokoro model download complete.")
         except Exception:
@@ -65,6 +79,8 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
             urllib.request.urlretrieve(KOKORO_VOICES_URL, tmp_voices)
             if tmp_voices.stat().st_size < MIN_VOICES_SIZE:
                 raise OSError(f"Downloaded voices file incomplete: {tmp_voices.stat().st_size} bytes")
+            if not _verify_sha256(tmp_voices, KOKORO_VOICES_SHA256):
+                raise OSError("Downloaded Kokoro voices file failed SHA-256 integrity verification")
             tmp_voices.replace(voices_path)
             logger.info("Kokoro voices download complete.")
         except Exception:

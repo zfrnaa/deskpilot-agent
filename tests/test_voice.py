@@ -128,3 +128,48 @@ def test_speak_in_background(mock_thread):
     speak_in_background("Test background speech", cfg)
     mock_thread.assert_called_once()
     mock_thread.return_value.start.assert_called_once()
+
+
+def test_ensure_model_files_verifies_sha256_and_rejects_tampered_download(tmp_path):
+    import hashlib
+    import pytest
+    from deskpilot.voice import ensure_model_files
+
+    cfg = VoiceConfig(
+        enabled=True,
+        cache_dir=str(tmp_path),
+        model_path=str(tmp_path / "kokoro-v1.0.onnx"),
+        voices_path=str(tmp_path / "voices-v1.0.bin"),
+    )
+
+    def _fake_urlretrieve(url, dest):
+        dest.write_bytes(b"tampered-payload")
+        return dest, None
+
+    with (
+        patch("deskpilot.voice.MIN_MODEL_SIZE", 5),
+        patch("deskpilot.voice.urllib.request.urlretrieve", side_effect=_fake_urlretrieve),
+    ):
+        with pytest.raises(OSError, match="SHA-256"):
+            ensure_model_files(cfg)
+        assert not (tmp_path / "kokoro-v1.0.onnx").exists()
+        assert not (tmp_path / "kokoro-v1.0.tmp").exists()
+
+    valid_bytes = b"valid-kokoro-payload"
+    valid_digest = hashlib.sha256(valid_bytes).hexdigest()
+
+    def _valid_urlretrieve(url, dest):
+        dest.write_bytes(valid_bytes)
+        return dest, None
+
+    with (
+        patch("deskpilot.voice.MIN_MODEL_SIZE", 5),
+        patch("deskpilot.voice.MIN_VOICES_SIZE", 5),
+        patch("deskpilot.voice.KOKORO_MODEL_SHA256", valid_digest),
+        patch("deskpilot.voice.KOKORO_VOICES_SHA256", valid_digest),
+        patch("deskpilot.voice.urllib.request.urlretrieve", side_effect=_valid_urlretrieve),
+    ):
+        m_path, v_path = ensure_model_files(cfg)
+        assert m_path.exists()
+        assert v_path.exists()
+
