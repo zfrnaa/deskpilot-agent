@@ -12,7 +12,11 @@ from deskpilot.boot_tasks.package_checker import (
     WingetUpdateResult,
     check_winget_updates,
 )
-from deskpilot.boot_tasks.system_hygiene import TempCleanResult, clean_temp_directory
+from deskpilot.boot_tasks.system_hygiene import (
+    TempCleanResult,
+    clean_temp_directory,
+    run_deep_systemcare_hygiene,
+)
 
 __all__ = [
     "BookmarkAuditResult",
@@ -23,6 +27,7 @@ __all__ = [
     "WingetUpdateResult",
     "audit_floorp_bookmarks",
     "clean_temp_directory",
+    "run_deep_systemcare_hygiene",
     "check_winget_updates",
     "fetch_today_agenda",
     "run_calendar_oauth_flow",

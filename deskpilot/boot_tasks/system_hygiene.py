@@ -22,6 +22,9 @@ class TempCleanResult(BaseModel):
     bytes_freed: int = 0
     files_removed: int = 0
     dirs_removed: int = 0
+    privacy_traces_cleared: int = 0
+    registry_entries_cleaned: int = 0
+    monthly_deep_ran: bool = False
     errors: list[str] = Field(default_factory=list)
 
     def merge(self, other: TempCleanResult) -> None:
@@ -29,6 +32,9 @@ class TempCleanResult(BaseModel):
         self.bytes_freed += other.bytes_freed
         self.files_removed += other.files_removed
         self.dirs_removed += other.dirs_removed
+        self.privacy_traces_cleared += other.privacy_traces_cleared
+        self.registry_entries_cleaned += other.registry_entries_cleaned
+        self.monthly_deep_ran = self.monthly_deep_ran or other.monthly_deep_ran
         self.errors.extend(other.errors)
 
 
@@ -265,6 +271,298 @@ def _clean_antigravity_orphans_sync(
             delete_empty_dirs=False,
         )
         result.merge(crash_res)
+
+    return result
+
+
+def _clean_junk_caches_sync(
+    max_age_days: int = 30,
+    dry_run: bool = False,
+    local_appdata: Path | None = None,
+) -> TempCleanResult:
+    """Clean stale developer caches, browser caches, Windows system logs, and app stream caches older than max_age_days."""
+    result = TempCleanResult()
+    base_local = local_appdata or Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    sys_root = Path(os.getenv("SystemRoot", r"C:\Windows"))
+    max_age_hours = max_age_days * 24
+
+    junk_targets = [
+        # Developer & Package Manager Caches
+        base_local / "npm-cache",
+        base_local / "pnpm-cache",
+        base_local / "uv" / "cache",
+        base_local / "pip" / "Cache",
+        base_local / "go-build",
+        # App Stream & Updater Caches
+        base_local / "Spotify" / "Data",
+        base_local / "antigravity-updater" / "pending",
+        base_local / "notion-updater" / "pending",
+        base_local / "Discord" / "Cache",
+        base_local / "Discord" / "Code Cache",
+        base_local / "Discord" / "GPUCache",
+        base_local / "Steam" / "htmlcache" / "Cache",
+        base_local / "Steam" / "htmlcache" / "Code Cache",
+        base_local / "Steam" / "htmlcache" / "GPUCache",
+        # Windows System Junk, Shader Caches, & INetCache (CCleaner / SystemCare targets)
+        base_local / "Microsoft" / "Windows" / "INetCache",
+        base_local / "Microsoft" / "Windows" / "WebCache",
+        base_local / "Microsoft" / "Windows" / "WER",
+        base_local / "D3DSCache",
+        base_local / "NVIDIA" / "DXCache",
+        base_local / "NVIDIA" / "GLCache",
+        base_local / "Temp",
+        # Chromium Browser Caches (Edge, Chrome, Brave - strictly cache folders, never cookies/passwords!)
+        base_local / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache" / "Cache_Data",
+        base_local / "Microsoft" / "Edge" / "User Data" / "Default" / "Code Cache",
+        base_local / "Microsoft" / "Edge" / "User Data" / "Default" / "GPUCache",
+        base_local / "Microsoft" / "Edge" / "User Data" / "ShaderCache",
+        base_local / "Google" / "Chrome" / "User Data" / "Default" / "Cache" / "Cache_Data",
+        base_local / "Google" / "Chrome" / "User Data" / "Default" / "Code Cache",
+        base_local / "Google" / "Chrome" / "User Data" / "Default" / "GPUCache",
+        base_local / "Google" / "Chrome" / "User Data" / "ShaderCache",
+        base_local / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Cache" / "Cache_Data",
+        base_local / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Code Cache",
+        base_local / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "GPUCache",
+        # Windows Logs & SoftwareDistribution Download Cache (if accessible)
+        sys_root / "Logs" / "CBS",
+        sys_root / "Logs" / "DISM",
+        sys_root / "SoftwareDistribution" / "Download",
+        sys_root / "ServiceProfiles" / "NetworkService" / "AppData" / "Local" / "Microsoft" / "Windows" / "DeliveryOptimization" / "Cache",
+    ]
+
+    # Also include any Floorp / Firefox profile cache2 & shader directories
+    for moz_browser in ("Floorp", r"Mozilla\Firefox"):
+        profiles_dir = base_local / moz_browser / "Profiles"
+        if profiles_dir.exists() and profiles_dir.is_dir():
+            for prof in profiles_dir.iterdir():
+                if prof.is_dir():
+                    junk_targets.append(prof / "cache2" / "entries")
+                    junk_targets.append(prof / "startupCache")
+                    junk_targets.append(prof / "jumpListCache")
+                    junk_targets.append(prof / "shader-cache")
+
+    for target in junk_targets:
+        if target.exists() and target.is_dir():
+            sub_res = _clean_directory_tree_sync(
+                target,
+                max_age_hours=max_age_hours,
+                dry_run=dry_run,
+                delete_empty_dirs=True,
+            )
+            result.merge(sub_res)
+
+    return result
+
+
+def _clean_privacy_sweep_sync(
+    max_age_days: int = 30,
+    dry_run: bool = False,
+    appdata_roaming: Path | None = None,
+    local_appdata: Path | None = None,
+) -> TempCleanResult:
+    """Clean stale Windows Recent jump lists, Explorer MRU search/typed history, and crash traces."""
+    result = TempCleanResult()
+    roaming = appdata_roaming or Path(os.getenv("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+    local = local_appdata or Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    max_age_hours = max_age_days * 24
+
+    privacy_dirs = [
+        roaming / "Microsoft" / "Windows" / "Recent",
+        roaming / "Microsoft" / "Windows" / "Recent" / "AutomaticDestinations",
+        roaming / "Microsoft" / "Windows" / "Recent" / "CustomDestinations",
+        roaming / "Microsoft" / "Office" / "Recent",
+        local / "Microsoft" / "Windows" / "WER" / "ReportArchive",
+        local / "Microsoft" / "Windows" / "WER" / "ReportQueue",
+        local / "Microsoft" / "Terminal Server Client" / "Cache",
+        local / "CrashDumps",
+    ]
+
+    for pdir in privacy_dirs:
+        if pdir.exists() and pdir.is_dir():
+            sub_res = _clean_directory_tree_sync(
+                pdir,
+                max_age_hours=max_age_hours,
+                dry_run=dry_run,
+                delete_empty_dirs=False,
+            )
+            result.bytes_freed += sub_res.bytes_freed
+            result.files_removed += sub_res.files_removed
+            result.privacy_traces_cleared += sub_res.files_removed
+
+    # Also sweep Explorer Registry MRU privacy lists (RunMRU, TypedPaths, WordWheelQuery search box history)
+    # Only runs when using real system paths (not isolated tmp_path unit test mocks)
+    if appdata_roaming is None and local_appdata is None:
+        try:
+            import winreg
+
+            mru_subkeys = [
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU",
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths",
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery",
+                r"Software\Microsoft\Windows\CurrentVersion\Applets\Paint\Recent File List",
+                r"Software\Microsoft\Windows\CurrentVersion\Applets\Wordpad\Recent File List",
+            ]
+            for subkey in mru_subkeys:
+                try:
+                    access = winreg.KEY_READ if dry_run else (winreg.KEY_READ | winreg.KEY_SET_VALUE)
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0, access) as key:
+                        num_vals = winreg.QueryInfoKey(key)[1]
+                        val_names = []
+                        for i in range(num_vals):
+                            try:
+                                v_name, _, _ = winreg.EnumValue(key, i)
+                                if v_name:
+                                    val_names.append(v_name)
+                            except OSError:
+                                continue
+                        for v_name in val_names:
+                            if dry_run:
+                                result.privacy_traces_cleared += 1
+                            else:
+                                try:
+                                    winreg.DeleteValue(key, v_name)
+                                    result.privacy_traces_cleared += 1
+                                except OSError:
+                                    pass
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+        except ImportError:
+            pass
+
+    return result
+
+
+def _extract_exe_from_command(cmd_str: str) -> Path | None:
+    """Extract executable file path from a Windows registry command or path string."""
+    s = cmd_str.strip()
+    if not s:
+        return None
+    if s.startswith('"'):
+        end_quote = s.find('"', 1)
+        if end_quote > 1:
+            candidate = s[1:end_quote]
+        else:
+            candidate = s.strip('"')
+    else:
+        lower_s = s.lower()
+        exe_idx = lower_s.find(".exe")
+        if exe_idx != -1:
+            candidate = s[: exe_idx + 4]
+        else:
+            candidate = s.split()[0]
+
+    expanded = os.path.expandvars(candidate)
+    p = Path(expanded)
+    if p.is_absolute():
+        return p
+    return None
+
+
+def _clean_registry_hygiene_sync(dry_run: bool = False) -> TempCleanResult:
+    """Safely prune orphaned Windows Registry references (MuiCache, Application Compatibility Store, broken HKCU Run entries).
+
+    Never touches file associations, CLSIDs, or shared system DLLs.
+    """
+    result = TempCleanResult()
+    try:
+        import winreg
+    except ImportError:
+        return result
+
+    registry_targets = [
+        (
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache",
+            "key_name",
+        ),
+        (
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store",
+            "key_name",
+        ),
+        (
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            "value_data",
+        ),
+    ]
+
+    for root_hive, subkey_path, mode in registry_targets:
+        try:
+            access = winreg.KEY_READ if dry_run else (winreg.KEY_READ | winreg.KEY_SET_VALUE)
+            with winreg.OpenKey(root_hive, subkey_path, 0, access) as key:
+                num_values = winreg.QueryInfoKey(key)[1]
+                to_delete: list[str] = []
+                for idx in range(num_values):
+                    try:
+                        val_name, val_data, _ = winreg.EnumValue(key, idx)
+                    except OSError:
+                        continue
+
+                    if not val_name or val_name == "LangID":
+                        continue
+
+                    if mode == "key_name":
+                        # MuiCache often appends .FriendlyAppName or .ApplicationCompany
+                        raw_path = val_name
+                        for suffix in (".FriendlyAppName", ".ApplicationCompany"):
+                            if raw_path.endswith(suffix):
+                                raw_path = raw_path[: -len(suffix)]
+                                break
+                        exe_path = _extract_exe_from_command(raw_path)
+                    else:
+                        exe_path = _extract_exe_from_command(str(val_data))
+
+                    if exe_path is not None and exe_path.drive and not exe_path.exists():
+                        to_delete.append(val_name)
+
+                for val_name in to_delete:
+                    if dry_run:
+                        result.registry_entries_cleaned += 1
+                    else:
+                        try:
+                            winreg.DeleteValue(key, val_name)
+                            result.registry_entries_cleaned += 1
+                        except OSError:
+                            pass
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            continue
+        except OSError as e:
+            result.errors.append(f"Registry scan warning on {subkey_path}: {e}")
+
+    return result
+
+
+async def run_deep_systemcare_hygiene(
+    config: TempCleanerConfig | None = None,
+    dry_run: bool = False,
+) -> TempCleanResult:
+    """Execute the full 3-in-1 SystemCare suite (Junk Clean, Privacy Sweep, and Safe Registry Clean)."""
+    cfg = config or TempCleanerConfig()
+    result = TempCleanResult(monthly_deep_ran=True)
+
+    # 1. Standard 24h Temp + Memory Dumps + Antigravity Orphans
+    base_res = await clean_temp_directory(dry_run=dry_run, config=cfg)
+    result.merge(base_res)
+
+    max_days = cfg.monthly_cadence_days
+
+    # 2. Junk Caches Clean
+    if cfg.monthly_junk_clean:
+        junk_res = await asyncio.to_thread(_clean_junk_caches_sync, max_days, dry_run)
+        result.merge(junk_res)
+
+    # 3. Privacy Sweep
+    if cfg.monthly_privacy_sweep:
+        priv_res = await asyncio.to_thread(_clean_privacy_sweep_sync, max_days, dry_run)
+        result.merge(priv_res)
+
+    # 4. Safe Registry Hygiene
+    if cfg.monthly_registry_clean:
+        reg_res = await asyncio.to_thread(_clean_registry_hygiene_sync, dry_run)
+        result.merge(reg_res)
 
     return result
 

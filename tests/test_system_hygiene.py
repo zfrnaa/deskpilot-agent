@@ -185,13 +185,27 @@ async def test_clean_temp_with_config(tmp_path: Path):
     target_file = _create_file_with_age(tmp_path / "custom.tmp", "config test", age_hours=15)
 
     # Config with enabled=False should bypass cleanup
-    cfg_disabled = TempCleanerConfig(enabled=False, temp_path=tmp_path, max_age_hours=10)
+    cfg_disabled = TempCleanerConfig(
+        enabled=False,
+        temp_path=tmp_path,
+        max_age_hours=10,
+        clean_windows_temp=False,
+        clean_memory_dumps=False,
+        clean_antigravity_orphans=False,
+    )
     result_disabled = await clean_temp_directory(config=cfg_disabled)
     assert result_disabled.files_removed == 0
     assert target_file.exists()
 
     # Config with enabled=True and max_age_hours=10 should clean 15h-old file
-    cfg_enabled = TempCleanerConfig(enabled=True, temp_path=tmp_path, max_age_hours=10)
+    cfg_enabled = TempCleanerConfig(
+        enabled=True,
+        temp_path=tmp_path,
+        max_age_hours=10,
+        clean_windows_temp=False,
+        clean_memory_dumps=False,
+        clean_antigravity_orphans=False,
+    )
     result_enabled = await clean_temp_directory(config=cfg_enabled)
     assert result_enabled.files_removed == 1
     assert not target_file.exists()
@@ -270,3 +284,34 @@ async def test_clean_antigravity_orphans(tmp_path: Path):
     assert (conv_dir / "active-123.db").exists()
     assert not orphan_brain.exists()
     assert not (conv_dir / "orphan-456.db").exists()
+
+
+def test_junk_and_privacy_sweep(tmp_path: Path):
+    from deskpilot.boot_tasks.system_hygiene import (
+        _clean_junk_caches_sync,
+        _clean_privacy_sweep_sync,
+        _extract_exe_from_command,
+    )
+
+    # 1. Junk caches (>30 days deleted, <30 days kept)
+    npm_cache = tmp_path / "npm-cache"
+    old_cache = _create_file_with_age(npm_cache / "stale.tgz", b"12345", age_hours=35 * 24)
+    new_cache = _create_file_with_age(npm_cache / "fresh.tgz", b"12345", age_hours=2 * 24)
+
+    junk_res = _clean_junk_caches_sync(max_age_days=30, dry_run=False, local_appdata=tmp_path)
+    assert junk_res.files_removed == 1
+    assert not old_cache.exists()
+    assert new_cache.exists()
+
+    # 2. Privacy sweep (>30 days recent shortcut deleted)
+    recent_dir = tmp_path / "Microsoft" / "Windows" / "Recent"
+    old_lnk = _create_file_with_age(recent_dir / "old_doc.lnk", b"lnk", age_hours=40 * 24)
+    priv_res = _clean_privacy_sweep_sync(
+        max_age_days=30, dry_run=False, appdata_roaming=tmp_path, local_appdata=tmp_path
+    )
+    assert priv_res.privacy_traces_cleared == 1
+    assert not old_lnk.exists()
+
+    # 3. Registry exe path extractor
+    p1 = _extract_exe_from_command(r'"C:\Program Files\App\app.exe" --minimized')
+    assert p1 == Path(r"C:\Program Files\App\app.exe")

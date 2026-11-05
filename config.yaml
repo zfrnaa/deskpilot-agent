@@ -1,11 +1,20 @@
 # DeskPilot Configuration File
 
-# %TEMP% directory cleaner
+# %TEMP% directory cleaner & Monthly SystemCare Hygiene
 temp_cleaner:
   enabled: true
   max_age_hours: 24
   temp_path: null
   # null defaults to Windows %TEMP%
+  clean_windows_temp: true
+  clean_memory_dumps: true
+  dump_max_age_days: 7
+  clean_antigravity_orphans: true
+  monthly_deep_clean_enabled: true
+  monthly_cadence_days: 30
+  monthly_junk_clean: true
+  monthly_privacy_sweep: true
+  monthly_registry_clean: true
 
 # Floorp browser bookmark auditor (on-demand via menu option [3])
 floorp:

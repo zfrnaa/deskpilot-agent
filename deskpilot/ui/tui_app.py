@@ -381,11 +381,12 @@ class DeskPilotTUI(App):
                 yield Static("[4] Winget", classes="dock-chip")
                 yield Static("[5] Read Later", classes="dock-chip")
                 yield Static("[6] Evals", classes="dock-chip")
+                yield Static("[7] SystemCare", classes="dock-chip")
                 yield Static("[0/Q] Exit", classes="dock-exit")
             with Horizontal(id="input-row"):
                 yield Static("▸ deskpilot run: ", id="prompt-symbol")
                 yield Input(
-                    placeholder="Type an option [0-6] and press Enter (or press number directly)...",
+                    placeholder="Type an option [0-7] and press Enter (or press number directly)...",
                     id="prompt-input",
                 )
 
@@ -394,7 +395,7 @@ class DeskPilotTUI(App):
         val = event.value.strip().lower()
         if val in ("0", "q"):
             self.exit(result=0)
-        elif val in ("1", "2", "3", "4", "5", "6"):
+        elif val in ("1", "2", "3", "4", "5", "6", "7"):
             self.exit(result=int(val))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -402,7 +403,7 @@ class DeskPilotTUI(App):
         val = event.value.strip().lower()
         if val in ("0", "q", "exit", "quit"):
             self.exit(result=0)
-        elif val in ("1", "2", "3", "4", "5", "6"):
+        elif val in ("1", "2", "3", "4", "5", "6", "7"):
             self.exit(result=int(val))
 
     def on_key(self, event) -> None:

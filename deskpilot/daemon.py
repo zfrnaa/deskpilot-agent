@@ -16,6 +16,31 @@ from deskpilot.ui.notifications import send_windows_toast
 
 DAEMON_NAMESPACE = ("daemon", "cadence")
 DOWNLOADS_LAST_TRIGGER_KEY = "downloads_last_triage_ts"
+MONTHLY_HYGIENE_LAST_TRIGGER_KEY = "monthly_hygiene_last_run_ts"
+
+
+def should_trigger_monthly_hygiene(
+    store: SQLiteStore,
+    cadence_days: int = 30,
+) -> bool:
+    """Check if the 30-day monthly SystemCare hygiene cadence has elapsed."""
+    item = store.get(DAEMON_NAMESPACE, MONTHLY_HYGIENE_LAST_TRIGGER_KEY)
+    now_ts = time.time()
+    if item is None:
+        return True
+
+    last_ts = item.value.get("timestamp", 0)
+    seconds_threshold = cadence_days * 86400
+    return (now_ts - last_ts) >= seconds_threshold
+
+
+def record_monthly_hygiene_run(store: SQLiteStore) -> None:
+    """Record timestamp of the monthly SystemCare deep hygiene execution."""
+    store.put(
+        DAEMON_NAMESPACE,
+        MONTHLY_HYGIENE_LAST_TRIGGER_KEY,
+        {"timestamp": time.time(), "recorded_at": datetime.now(timezone.utc).isoformat()},
+    )
 
 
 def count_eligible_screenshots(screenshots_dir: Path) -> list[Path]:
