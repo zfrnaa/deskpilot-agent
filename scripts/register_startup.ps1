@@ -50,7 +50,7 @@ param(
     [string]$Method = "ScheduledTask",
 
     [Parameter()]
-    [switch]$StartupFlag,
+    [switch]$StartupFlag = $true,
 
     [Parameter()]
     [switch]$Force,
