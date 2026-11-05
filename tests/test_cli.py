@@ -270,7 +270,7 @@ def test_prompt_action_menu_renders_and_returns_choice():
     assert "[3]" in output and "Floorp Bookmarks" in output
     assert "[4]" in output and "Upgrade Winget" in output
     assert "[5]" in output and "Notion Read-Later Digest" in output
-    assert "[6]" in output and "Run Agent Evaluations" in output
+    assert "[6]" in output and "SystemCare Deep Clean" in output
     assert "[0]" in output and "Dismiss & Exit" in output
 
 
@@ -845,39 +845,15 @@ def test_lazy_loading_of_langgraph_in_cli():
 
 
 @pytest.mark.asyncio
-async def test_execute_menu_action_option_6_evaluations_local_mode():
-    """Verify that choice '6' executes run_downloads_evaluation locally when no API key configured."""
+async def test_execute_menu_action_option_6_systemcare():
+    """Verify that choice '6' executes SystemCare Deep Clean."""
     console = Console(record=True, width=100)
     settings = Settings()
-    settings.langsmith_api_key = None
-    settings.langchain_api_key = None
 
-    with patch("deskpilot.evals.runner.run_downloads_evaluation") as mock_eval:
-        should_continue = await execute_menu_action("6", console=console, settings=settings)
-        assert should_continue is True
-        mock_eval.assert_called_once_with(local_only=True)
-        output = console.export_text()
-        assert "Agent Evaluations" in output
-
-
-@pytest.mark.asyncio
-async def test_execute_menu_action_option_6_evaluations_langsmith_mode():
-    """Verify that choice '6' initializes LangSmith client when API key configured."""
-    console = Console(record=True, width=100)
-    settings = Settings()
-    settings.langsmith_api_key = "ls__test_api_key"
-
-    with (
-        patch("deskpilot.evals.runner.run_downloads_evaluation") as mock_eval,
-        patch("langsmith.Client") as mock_client_cls,
-    ):
-        mock_client_instance = MagicMock()
-        mock_client_cls.return_value = mock_client_instance
-
-        should_continue = await execute_menu_action("6", console=console, settings=settings)
-        assert should_continue is True
-        mock_client_cls.assert_called_once_with(api_key="ls__test_api_key")
-        mock_eval.assert_called_once_with(client=mock_client_instance, local_only=False)
+    should_continue = await execute_menu_action("6", console=console, settings=settings)
+    assert should_continue is True
+    output = console.export_text()
+    assert "SystemCare Deep Clean" in output
 
 
 def test_parse_args_eval_flags():
@@ -1054,6 +1030,63 @@ async def test_run_phase1_boot_sequence_prune_failure_does_not_break_boot(tmp_pa
         state = await run_phase1_boot_sequence(settings)
         assert state.has_errors()
         assert any("Storage checkpoint pruning failed: Disk I/O error" in e for e in state.errors)
+
+
+def test_open_notion_or_browser_rejects_unsafe_web_url_and_page_id():
+    """Verify open_notion_or_browser blocks non-HTTP(S) URLs and path-traversal page IDs."""
+    from deskpilot.cli import open_notion_or_browser
+
+    with (
+        patch("os.startfile", create=True) as mock_startfile,
+        patch("webbrowser.get") as mock_wb_get,
+        patch("webbrowser.open") as mock_wb_open,
+    ):
+        assert open_notion_or_browser("abc123def456", web_url="file:///C:/Windows/System32/calc.exe") is False
+        assert open_notion_or_browser("abc123def456", web_url="javascript:alert(1)") is False
+        assert open_notion_or_browser("../../../calc.exe", web_url=None) is False
+        mock_startfile.assert_not_called()
+        mock_wb_get.assert_not_called()
+        mock_wb_open.assert_not_called()
+
+
+def test_render_dashboard_escapes_rich_markup_injection():
+    """Verify untrusted external fields with Rich markup syntax do not corrupt or spoof the dashboard."""
+    state = BootState(
+        system_hygiene=TempCleanResult(errors=["[bold red][link=file:///C:/calc.exe]ClickError[/link][/bold red]"]),
+        winget_updates=WingetUpdateResult(
+            total_count=1,
+            updates=[
+                WingetUpdateItem(
+                    name="Pkg [red]Injected[/red]",
+                    id="Pkg.Id",
+                    version="1.0",
+                    available_version="2.0",
+                )
+            ],
+        ),
+        calendar_agenda=CalendarAgendaResult(
+            is_configured=True,
+            total_count=1,
+            date_str="2026-04-08",
+            events=[
+                CalendarEventItem(
+                    id="1",
+                    summary="Meeting [blink]Alert[/blink]",
+                    start_time="09:00",
+                    end_time="10:00",
+                    location="Room [b]A[/b]",
+                )
+            ],
+        ),
+        errors=["Boot error [link=javascript:evil]bad[/link]"],
+    )
+    console = Console(record=True, width=120)
+    render_dashboard(state, console=console)
+    output = console.export_text()
+    assert "Pkg [red]Injected[/red]" in output
+    assert "Meeting [blink]Alert[/blink]" in output
+    assert "Boot error [link=javascript:evil]bad[/link]" in output
+
 
 
 

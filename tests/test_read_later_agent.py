@@ -472,6 +472,26 @@ async def test_run_read_later_flow_with_mock_client():
     assert state["status_updated"] is False
 
 
+def test_parse_notion_page_rejects_unsafe_url_schemes():
+    """Verify non-HTTP(S) schemes (file://, javascript:, ms-msdt:) are rejected in parse_notion_page."""
+    for bad_url in (
+        "file:///C:/Windows/System32/calc.exe",
+        "javascript:alert(1)",
+        "ms-msdt:/id PCWDiagnostic",
+        "ftp://example.com/file",
+        "https://",
+    ):
+        page = {
+            "id": "page-unsafe-1",
+            "properties": {
+                "Name": {"type": "title", "title": [{"plain_text": "Unsafe Link"}]},
+                "URL": {"type": "url", "url": bad_url},
+            },
+        }
+        item = parse_notion_page(page)
+        assert item.url is None, f"Expected unsafe URL {bad_url!r} to be rejected"
+
+
 def test_no_utf8_bom_in_read_later_files():
     """Verify all Python files in read_later_agent and test files have no UTF-8 BOM."""
     base_dir = Path(__file__).resolve().parent.parent

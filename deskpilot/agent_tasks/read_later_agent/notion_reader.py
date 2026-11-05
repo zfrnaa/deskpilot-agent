@@ -4,8 +4,23 @@ from __future__ import annotations
 
 import inspect
 from typing import Any
+from urllib.parse import urlparse
 
 from deskpilot.agent_tasks.read_later_agent.state import ReadLaterItem
+
+
+def _is_safe_http_url(url: str | None) -> bool:
+    """Return True only if url is a valid HTTP or HTTPS URL with a network location."""
+    if not url or not isinstance(url, str):
+        return False
+    cleaned = url.strip()
+    if any(ch in cleaned for ch in ("\r", "\n", "\x00")):
+        return False
+    try:
+        parsed = urlparse(cleaned)
+        return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
 
 
 def parse_notion_page(page: dict[str, Any]) -> ReadLaterItem:
@@ -60,8 +75,10 @@ def parse_notion_page(page: dict[str, Any]) -> ReadLaterItem:
         prop = properties.get(name)
         if isinstance(prop, dict):
             if prop.get("type") == "url" and prop.get("url"):
-                url = str(prop["url"]).strip()
-                break
+                candidate = str(prop["url"]).strip()
+                if _is_safe_http_url(candidate):
+                    url = candidate
+                    break
             elif prop.get("type") == "rich_text":
                 parts = prop.get("rich_text", [])
                 if isinstance(parts, list):
@@ -70,15 +87,17 @@ def parse_notion_page(page: dict[str, Any]) -> ReadLaterItem:
                         for t in parts
                         if isinstance(t, dict)
                     ).strip()
-                    if text.startswith("http://") or text.startswith("https://"):
+                    if _is_safe_http_url(text):
                         url = text
                         break
 
     if url is None:
         for prop in properties.values():
             if isinstance(prop, dict) and prop.get("type") == "url" and prop.get("url"):
-                url = str(prop["url"]).strip()
-                break
+                candidate = str(prop["url"]).strip()
+                if _is_safe_http_url(candidate):
+                    url = candidate
+                    break
 
     # 3. Extract Status
     status = "To Be Read"

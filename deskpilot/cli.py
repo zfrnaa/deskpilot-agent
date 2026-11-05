@@ -14,6 +14,7 @@ import langsmith
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape as escape_markup
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -42,21 +43,45 @@ from deskpilot.ui.progress import (
 )
 
 
+def _is_safe_http_url(url: str | None) -> bool:
+    """Return True if url is a safe http:// or https:// URL without control characters."""
+    if not url or not isinstance(url, str):
+        return False
+    cleaned = url.strip()
+    if any(ch in cleaned for ch in ("\r", "\n", "\x00")):
+        return False
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(cleaned)
+        return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
 def open_notion_or_browser(page_id: str, web_url: str | None = None) -> bool:
     """Open Notion page in Notion desktop app if available, otherwise open in browser (Chrome preferred)."""
     import os
+    import re
     import shutil
     import webbrowser
 
-    clean_id = page_id.replace("-", "")
-    app_uri = f"notion://www.notion.so/{clean_id}"
-    http_url = web_url or f"https://www.notion.so/{clean_id}"
+    if web_url is not None and not _is_safe_http_url(web_url):
+        return False
+
+    raw_id = str(page_id or "").replace("-", "").strip()
+    clean_id = raw_id if re.fullmatch(r"[A-Za-z0-9_]+", raw_id) else ""
+    if not clean_id and not web_url:
+        return False
+
+    app_uri = f"notion://www.notion.so/{clean_id}" if clean_id else ""
+    http_url = web_url.strip() if web_url else f"https://www.notion.so/{clean_id}"
 
     # Check for Notion desktop app executable or protocol handler
     local_app_data = os.environ.get("LOCALAPPDATA", "")
     notion_exe_path = os.path.join(local_app_data, "Programs", "Notion", "Notion.exe")
 
-    if (local_app_data and os.path.exists(notion_exe_path)) or shutil.which("notion"):
+    if app_uri and ((local_app_data and os.path.exists(notion_exe_path)) or shutil.which("notion")):
         try:
             # On Windows, os.startfile with the notion:// URI opens directly in Notion app
             if hasattr(os, "startfile"):
@@ -217,7 +242,7 @@ def _create_hygiene_panel(state: BootState, unicode_ok: bool = True) -> Panel:
             f"[dim]SystemCare:[/dim] [bold magenta]{sh.privacy_traces_cleared}[/bold magenta] [dim]privacy traces[/dim] {sep} [bold magenta]{sh.registry_entries_cleaned}[/bold magenta] [dim]registry keys[/dim]"
         )
     if sh.errors:
-        lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] [dim]{sh.errors[0]}[/dim]")
+        lines.append(f"[yellow]Warnings/Errors ({len(sh.errors)}):[/yellow] [dim]{escape_markup(str(sh.errors[0]))}[/dim]")
 
     return ui_theme.card_panel(
         "\n".join(lines),
@@ -239,7 +264,7 @@ def _create_bookmarks_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 
     fb: BookmarkAuditResult = state.floorp_bookmarks
     if fb.error:
-        content = f"[yellow]{fb.error}[/yellow]"
+        content = f"[yellow]{escape_markup(str(fb.error))}[/yellow]"
     else:
         dot = ui_theme.GLYPH_DOT if unicode_ok else "*"
         noisy_badge = f"[bold green]0[/bold green]" if fb.noisy_count == 0 else f"[bold yellow]{fb.noisy_count}[/bold yellow]"
@@ -278,7 +303,7 @@ def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     if wu.timed_out:
         content = "[yellow]Query timed out. Run manually if needed.[/yellow]"
     elif wu.error:
-        content = f"[yellow]{wu.error}[/yellow]"
+        content = f"[yellow]{escape_markup(str(wu.error))}[/yellow]"
     elif wu.total_count == 0:
         content = (
             f"[bold green]{dot} Up to date[/bold green]\n\n"
@@ -290,7 +315,10 @@ def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
             "",
         ]
         for item in wu.updates[:4]:
-            lines.append(f" [cyan]{bullet}[/cyan] [bold]{item.name}[/bold] [dim]({item.version} {arrow} [green]{item.available_version}[/green])[/dim]")
+            safe_name = escape_markup(str(item.name))
+            safe_ver = escape_markup(str(item.version))
+            safe_avail = escape_markup(str(item.available_version))
+            lines.append(f" [cyan]{bullet}[/cyan] [bold]{safe_name}[/bold] [dim]({safe_ver} {arrow} [green]{safe_avail}[/green])[/dim]")
         if len(wu.updates) > 4:
             lines.append(f"   [dim]... and {len(wu.updates) - 4} more updates pending[/dim]")
         content = "\n".join(lines)
@@ -318,18 +346,24 @@ def _create_calendar_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     arrow = "->" if not unicode_ok else "→"
 
     if ca.error:
-        content = f"[yellow]{ca.error}[/yellow]"
+        content = f"[yellow]{escape_markup(str(ca.error))}[/yellow]"
     elif not ca.is_configured:
         content = "[dim]Calendar not configured (token/credentials missing)[/dim]"
     elif not ca.events:
-        content = f"[bold green]{dot} Clear Schedule[/bold green]\n\n[dim]No meetings or events scheduled for today ({ca.date_str or 'today'}).[/dim]"
+        safe_date = escape_markup(str(ca.date_str or "today"))
+        content = f"[bold green]{dot} Clear Schedule[/bold green]\n\n[dim]No meetings or events scheduled for today ({safe_date}).[/dim]"
     else:
-        date_header = f"[dim]Date:[/dim] [bold white]{ca.date_str}[/bold white]  [dim]Events:[/dim] [bold green]{ca.total_count}[/bold green]"
+        safe_date = escape_markup(str(ca.date_str))
+        date_header = f"[dim]Date:[/dim] [bold white]{safe_date}[/bold white]  [dim]Events:[/dim] [bold green]{ca.total_count}[/bold green]"
         lines = [date_header, ""]
         for ev in ca.events[:5]:
-            time_badge = "[bold cyan][All Day][/bold cyan]" if ev.is_all_day else f"[bold cyan]{ev.start_time}[/bold cyan] [dim]{arrow} {ev.end_time}[/dim]"
-            loc = f" [dim]({ev.location})[/dim]" if ev.location else ""
-            lines.append(f" [green]{dot}[/green] {time_badge}  [bold]{ev.summary}[/bold]{loc}")
+            safe_start = escape_markup(str(ev.start_time))
+            safe_end = escape_markup(str(ev.end_time))
+            safe_summary = escape_markup(str(ev.summary))
+            safe_loc = escape_markup(str(ev.location)) if ev.location else ""
+            time_badge = "[bold cyan][All Day][/bold cyan]" if ev.is_all_day else f"[bold cyan]{safe_start}[/bold cyan] [dim]{arrow} {safe_end}[/dim]"
+            loc = f" [dim]({safe_loc})[/dim]" if safe_loc else ""
+            lines.append(f" [green]{dot}[/green] {time_badge}  [bold]{safe_summary}[/bold]{loc}")
         if len(ca.events) > 5:
             lines.append(f"   [dim]... and {len(ca.events) - 5} more upcoming[/dim]")
         content = "\n".join(lines)
@@ -363,10 +397,18 @@ def _create_news_panel(state: BootState, unicode_ok: bool = True) -> Panel:
         "",
     ]
     for item in mn.headlines[:5]:
-        badge = f"[bold magenta]{item.topic}[/bold magenta]"
-        src = f" [dim]via {item.source}[/dim]" if item.source else ""
-        link_str = f" [link={item.link}][dim underline]open[/dim underline][/link]" if item.link else ""
-        lines.append(f" [yellow]{diamond}[/yellow] [{badge}] [bold]{item.title}[/bold]{src}{link_str}")
+        safe_topic = escape_markup(str(item.topic))
+        safe_title = escape_markup(str(item.title))
+        safe_source = escape_markup(str(item.source)) if item.source else ""
+        badge = f"[bold magenta]{safe_topic}[/bold magenta]"
+        src = f" [dim]via {safe_source}[/dim]" if safe_source else ""
+        safe_link = (
+            item.link.strip()
+            if item.link and _is_safe_http_url(item.link) and not any(c in item.link for c in (" ", "[", "]"))
+            else ""
+        )
+        link_str = f" [link={safe_link}][dim underline]open[/dim underline][/link]" if safe_link else ""
+        lines.append(f" [yellow]{diamond}[/yellow] [{badge}] [bold]{safe_title}[/bold]{src}{link_str}")
 
     return ui_theme.card_panel(
         "\n".join(lines),
@@ -454,7 +496,7 @@ def render_dashboard(
 
     # Error panel if any errors were recorded during boot
     if state.has_errors():
-        err_lines = "\n".join(f"• {err}" for err in state.errors)
+        err_lines = "\n".join(f"• {escape_markup(str(err))}" for err in state.errors)
         c.print(
             ui_theme.panel(
                 err_lines,
@@ -468,9 +510,9 @@ def render_dashboard(
 def normalize_menu_choice(raw: str) -> str:
     """Normalize input choice by stripping whitespace, BOM markers, and brackets."""
     clean = raw.strip().strip("'\"").strip("\ufeff\xef\xbb\xbf\x00 ")
-    if clean in {"0", "1", "2", "3", "4", "5", "6", "7"}:
+    if clean in {"0", "1", "2", "3", "4", "5", "6"}:
         return clean
-    digits = [ch for ch in clean if ch in "01234567"]
+    digits = [ch for ch in clean if ch in "0123456"]
     if len(digits) == 1:
         return digits[0]
     return clean
@@ -515,10 +557,6 @@ def prompt_action_menu(
     )
     menu_table.add_row(
         "[bold cyan][6][/bold cyan]",
-        f"Run Agent Evaluations  [dim]• LangSmith Benchmark[/dim]",
-    )
-    menu_table.add_row(
-        "[bold cyan][7][/bold cyan]",
         f"SystemCare Deep Clean  [dim]• Privacy Sweep, Junk Clean & Safe Registry Hygiene[/dim]",
     )
     menu_table.add_row(
@@ -535,8 +573,8 @@ def prompt_action_menu(
         )
     )
     prompt_glyph = ui_theme.GLYPH_PROMPT if unicode_ok else ">"
-    selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-7]: "))
-    if selection in {"0", "1", "2", "3", "4", "5", "6", "7"} and voice_enabled:
+    selection = normalize_menu_choice(prompt_func(f"{prompt_glyph} Select an option [0-6]: "))
+    if selection in {"0", "1", "2", "3", "4", "5", "6"} and voice_enabled:
         try:
             from deskpilot.voice import play_chime_in_background
 
@@ -851,7 +889,7 @@ async def execute_menu_action(
             if errors:
                 c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow]")
                 for err in errors:
-                    c.print(f"  [yellow]• {err}[/yellow]")
+                    c.print(f"  [yellow]• {escape_markup(str(err))}[/yellow]")
 
             if cfg.voice.enabled:
                 try:
@@ -864,7 +902,7 @@ async def execute_menu_action(
                 except Exception:
                     pass
         except Exception as e:
-            c.print(f"[red]Screenshot Triage failed: {e}[/red]")
+            c.print(f"[red]Screenshot Triage failed: {escape_markup(str(e))}[/red]")
         return True
     elif normalized_choice == "2":
         from deskpilot.ui.pipeline import render_pipeline
@@ -891,7 +929,7 @@ async def execute_menu_action(
             errors = dh_res.get("errors", [])
             c.print(f"[bold green]Downloads Cleanup complete:[/bold green] Freed: {freed}, Moved to Archive: {moved}")
             if errors:
-                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {escape_markup(str(errors[0]))}")
 
             if cfg.voice.enabled:
                 try:
@@ -904,7 +942,7 @@ async def execute_menu_action(
                 except Exception:
                     pass
         except Exception as e:
-            c.print(f"[red]Downloads Cleanup failed: {e}[/red]")
+            c.print(f"[red]Downloads Cleanup failed: {escape_markup(str(e))}[/red]")
         return True
     elif normalized_choice == "3":
         c.print("[cyan]Auditing Floorp Bookmarks...[/cyan]")
@@ -915,14 +953,14 @@ async def execute_menu_action(
                 state.floorp_bookmarks = fb_res
 
             if fb_res.error:
-                c.print(f"[yellow]Floorp bookmark audit error: {fb_res.error}[/yellow]")
+                c.print(f"[yellow]Floorp bookmark audit error: {escape_markup(str(fb_res.error))}[/yellow]")
             else:
                 c.print(
                     Panel(
                         f"[bold]Total Bookmarks:[/bold] {fb_res.total_bookmarks}\n"
                         f"[bold]Noisy Tracking Bookmarks:[/bold] {fb_res.noisy_count}\n"
                         f"[bold]Duplicate Groups:[/bold] {fb_res.duplicate_groups_count}\n"
-                        f"[bold]Profile Path:[/bold] {fb_res.profile_path or 'Default'}",
+                        f"[bold]Profile Path:[/bold] {escape_markup(str(fb_res.profile_path or 'Default'))}",
                         title="[bold magenta]Floorp Bookmarks Preview[/bold magenta]",
                         border_style="magenta",
                     )
@@ -935,7 +973,7 @@ async def execute_menu_action(
                     noisy_table.add_column("Title", style="white", ratio=1)
                     noisy_table.add_column("URL", style="dim", ratio=2)
                     for item in fb_res.sample_noisy[:5]:
-                        noisy_table.add_row(item.get("title", "")[:40], item.get("url", "")[:60])
+                        noisy_table.add_row(escape_markup(str(item.get("title", "")[:40])), escape_markup(str(item.get("url", "")[:60])))
                     c.print(noisy_table)
 
                 if fb_res.sample_duplicates:
@@ -943,7 +981,7 @@ async def execute_menu_action(
                     dup_table.add_column("Count", style="cyan", width=8)
                     dup_table.add_column("Normalized URL", style="dim", ratio=1)
                     for item in fb_res.sample_duplicates[:5]:
-                        dup_table.add_row(str(item.get("count", 0)), item.get("url", "")[:70])
+                        dup_table.add_row(str(item.get("count", 0)), escape_markup(str(item.get("url", "")[:70])))
                     c.print(dup_table)
 
                 if cfg.voice.enabled:
@@ -957,7 +995,7 @@ async def execute_menu_action(
                     except Exception:
                         pass
         except Exception as e:
-            c.print(f"[red]Floorp bookmark audit failed: {e}[/red]")
+            c.print(f"[red]Floorp bookmark audit failed: {escape_markup(str(e))}[/red]")
         return True
     elif normalized_choice == "4":
         c.print("[cyan]Checking for package updates...[/cyan]")
@@ -965,7 +1003,7 @@ async def execute_menu_action(
             cfg = settings or load_settings()
             if cfg.winget.ignore_packages:
                 c.print(
-                    f"[yellow]Ignored packages excluded from reporting: {', '.join(cfg.winget.ignore_packages)}[/yellow]"
+                    f"[yellow]Ignored packages excluded from reporting: {escape_markup(', '.join(cfg.winget.ignore_packages))}[/yellow]"
                 )
 
             # Check for updates or use already fetched updates from state
@@ -975,7 +1013,7 @@ async def execute_menu_action(
             else:
                 wu_res = await check_winget_updates(config=cfg.winget)
                 if wu_res.error:
-                    c.print(f"[yellow]Package check warning: {wu_res.error}[/yellow]")
+                    c.print(f"[yellow]Package check warning: {escape_markup(str(wu_res.error))}[/yellow]")
                 elif wu_res.timed_out:
                     c.print("[yellow]Package check timed out.[/yellow]")
                 elif wu_res.total_count == 0:
@@ -997,7 +1035,12 @@ async def execute_menu_action(
                 pkg_table.add_column("Current Version", style="dim", ratio=1)
                 pkg_table.add_column("Available Version", style="bold green", ratio=1)
                 for item in updates:
-                    pkg_table.add_row(item.name, item.id, item.version, item.available_version)
+                    pkg_table.add_row(
+                        escape_markup(str(item.name)),
+                        escape_markup(str(item.id)),
+                        escape_markup(str(item.version)),
+                        escape_markup(str(item.available_version)),
+                    )
                 c.print(pkg_table)
 
                 prompt_glyph = ui_theme.GLYPH_PROMPT if ui_theme.supports_glyphs() else ">"
@@ -1015,7 +1058,7 @@ async def execute_menu_action(
         except FileNotFoundError:
             c.print("[red]winget executable not found on this system.[/red]")
         except Exception as e:
-            c.print(f"[red]Failed to run winget upgrade: {e}[/red]")
+            c.print(f"[red]Failed to run winget upgrade: {escape_markup(str(e))}[/red]")
         return True
     elif normalized_choice == "5":
         c.print("[cyan]Starting Notion Read-Later Digest Agent...[/cyan]")
@@ -1032,16 +1075,21 @@ async def execute_menu_action(
             rec = rl_res.get("recommended_item")
             rec_title = getattr(rec, "title", str(rec)) if rec else "None"
             errors = rl_res.get("errors", [])
-            c.print(f"[bold green]Read-Later Digest complete:[/bold green] Unread: {unread}, Recommended: {rec_title}")
+            c.print(f"[bold green]Read-Later Digest complete:[/bold green] Unread: {unread}, Recommended: {escape_markup(str(rec_title))}")
             if errors:
-                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {errors[0]}")
+                c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {escape_markup(str(errors[0]))}")
 
             if rec is not None:
+                safe_rec_title = escape_markup(str(getattr(rec, "title", "Untitled")))
+                safe_rec_url = escape_markup(str(getattr(rec, "url", None) or "N/A"))
+                safe_rec_added = escape_markup(str(getattr(rec, "added_date", None) or "N/A"))
+                raw_tags = getattr(rec, "tags", None)
+                safe_rec_tags = escape_markup(", ".join(str(t) for t in raw_tags)) if raw_tags else "None"
                 lines = [
-                    f"[bold cyan]Title:[/bold cyan] {getattr(rec, 'title', 'Untitled')}",
-                    f"[bold]URL:[/bold] {getattr(rec, 'url', None) or 'N/A'}",
-                    f"[bold]Added:[/bold] {getattr(rec, 'added_date', None) or 'N/A'}",
-                    f"[bold]Tags:[/bold] {', '.join(getattr(rec, 'tags', [])) if getattr(rec, 'tags', None) else 'None'}",
+                    f"[bold cyan]Title:[/bold cyan] {safe_rec_title}",
+                    f"[bold]URL:[/bold] {safe_rec_url}",
+                    f"[bold]Added:[/bold] {safe_rec_added}",
+                    f"[bold]Tags:[/bold] {safe_rec_tags}",
                 ]
                 c.print(
                     Panel(
@@ -1053,7 +1101,7 @@ async def execute_menu_action(
 
                 ans = prompt_func("\nDo you want to open and read this item now? [Y/n]: ").strip().lower()
                 if ans in ("", "y", "yes", "r", "read"):
-                    c.print(f"[cyan]Opening '{rec.title}'...[/cyan]")
+                    c.print(f"[cyan]Opening '{safe_rec_title}'...[/cyan]")
                     opened = open_notion_or_browser(page_id=rec.page_id, web_url=rec.url)
                     if not opened:
                         c.print("[yellow]Could not launch Notion app or browser.[/yellow]")
@@ -1068,30 +1116,13 @@ async def execute_menu_action(
                             if not updated:
                                 updated = await update_item_status(page_id=rec.page_id, new_status="read", client=cl)
                             if updated:
-                                c.print(f"[bold green]Successfully marked '{rec.title}' as Read in Notion![/bold green]")
+                                c.print(f"[bold green]Successfully marked '{safe_rec_title}' as Read in Notion![/bold green]")
                             else:
-                                c.print(f"[yellow]Could not update status for '{rec.title}' in Notion.[/yellow]")
+                                c.print(f"[yellow]Could not update status for '{safe_rec_title}' in Notion.[/yellow]")
         except Exception as e:
-            c.print(f"[red]Read-Later Digest failed: {e}[/red]")
+            c.print(f"[red]Read-Later Digest failed: {escape_markup(str(e))}[/red]")
         return True
-    elif normalized_choice == "6":
-        c.print("[cyan]Starting Agent Evaluations (LangSmith Benchmark)...[/cyan]")
-        try:
-            from deskpilot.evals.runner import run_downloads_evaluation
-
-            cfg = settings or load_settings()
-            api_key = cfg.langsmith_api_key or cfg.langchain_api_key
-            if api_key:
-                c.print("[cyan]Running evaluation and logging to LangSmith...[/cyan]")
-                client = langsmith.Client(api_key=api_key)
-                run_downloads_evaluation(client=client, local_only=False)
-            else:
-                c.print("[cyan]Running evaluation in local-only benchmark mode...[/cyan]")
-                run_downloads_evaluation(local_only=True)
-        except Exception as e:
-            c.print(f"[red]Agent Evaluations failed: {e}[/red]")
-        return True
-    elif normalized_choice == "7":
+    elif normalized_choice in ("6", "7"):
         from deskpilot.ui.pipeline import render_pipeline
         unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
         c.print(
@@ -1129,10 +1160,10 @@ async def execute_menu_action(
                 )
             )
         except Exception as e:
-            c.print(f"[red]SystemCare Deep Clean failed: {e}[/red]")
+            c.print(f"[red]SystemCare Deep Clean failed: {escape_markup(str(e))}[/red]")
         return True
     else:
-        c.print(f"[bold red]Invalid option '{choice}'. Please select an option between 0 and 7.[/bold red]")
+        c.print(f"[bold red]Invalid option '{escape_markup(str(choice))}'. Please select an option between 0 and 7.[/bold red]")
         return True
 
 
