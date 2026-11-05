@@ -118,6 +118,9 @@ if (-not $wtCommand) {
     $wtPath = $wtCommand.Source
 }
 
+$safeWorkingDirectory = $WorkingDirectory.Replace("'", "''")
+$safeUvPath = $uvPath.Replace("'", "''")
+
 if ($wtPath -and -not $StartupFlag) {
     $execPath = $wtPath
     $taskArgs = "-w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" $cliArgs"
@@ -127,7 +130,7 @@ if ($wtPath -and -not $StartupFlag) {
     $psCmd = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
     if ($psCmd) {
         $execPath = $psCmd
-        $taskArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$WorkingDirectory'; & '$uvPath' $cliArgs`""
+        $taskArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' $cliArgs`""
     } else {
         $execPath = $uvPath
         $taskArgs = $cliArgs
@@ -177,7 +180,7 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
                 try {
                     $powershellExe = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
                     if (-not $powershellExe) { $powershellExe = "powershell.exe" }
-                    $daemonArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$WorkingDirectory'; & '$uvPath' run --directory '$WorkingDirectory' deskpilot --daemon`""
+                    $daemonArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' run --directory '$safeWorkingDirectory' deskpilot --daemon`""
                     $daemonAction = New-ScheduledTaskAction -Execute $powershellExe -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
                     $daemonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
                     $daemonPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel $runLevel
