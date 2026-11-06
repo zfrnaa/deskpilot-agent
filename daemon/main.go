@@ -9,6 +9,8 @@ import (
 
 	"deskpilot/daemon/internal/db"
 	"deskpilot/daemon/internal/notify"
+	"deskpilot/daemon/internal/runner"
+	"deskpilot/daemon/internal/tray"
 	"deskpilot/daemon/internal/watcher"
 )
 
@@ -19,7 +21,6 @@ var (
 )
 
 func findProjectRoot() string {
-	// First check current working directory
 	cwd, err := os.Getwd()
 	if err == nil {
 		if _, err := os.Stat(filepath.Join(cwd, "config.yaml")); err == nil {
@@ -27,7 +28,6 @@ func findProjectRoot() string {
 		}
 	}
 
-	// Then check directory containing the executable
 	exePath, err := os.Executable()
 	if err == nil {
 		exeDir := filepath.Dir(exePath)
@@ -63,9 +63,37 @@ func main() {
 		defer store.Close()
 	}
 
-	log.Printf("DeskPilot watcher daemon active (watching: %s, threshold: %d)", cfg.Screenshots.Directory, cfg.Daemon.ScreenshotThreshold)
+	// Start background watcher loop in goroutine
+	go runWatcherLoop()
 
-	// Run periodic watcher
+	// Launch native Win32 system tray
+	callbacks := tray.TrayCallbacks{
+		OnOpenDashboard: func() {
+			_ = runner.RunDeskPilotInteractive(projectRoot, "--tui")
+		},
+		OnClearRAM: func() {
+			// Trigger Python memory optimization pipeline silently and show Bento notification
+			go func() {
+				_ = runner.RunDeskPilotSilent(projectRoot, "--clear-ram")
+				_ = notify.ShowBentoNotification("Memory Optimization", "Standby list purged and process working sets trimmed.", "")
+			}()
+		},
+		OnTriageShots: func() {
+			_ = runner.RunDeskPilotInteractive(projectRoot, "--tui")
+		},
+		OnExit: func() {
+			os.Exit(0)
+		},
+	}
+
+	if err := tray.RunTray("DeskPilot Autonomous Daemon", callbacks); err != nil {
+		log.Printf("Tray failed: %v", err)
+		// Fallback: stay alive in background loop if tray fails
+		select {}
+	}
+}
+
+func runWatcherLoop() {
 	interval := time.Duration(cfg.Daemon.PollIntervalSeconds) * time.Second
 	if interval < 5*time.Second {
 		interval = 60 * time.Second
