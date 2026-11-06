@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,6 +24,23 @@ type Config struct {
 	} `yaml:"storage"`
 }
 
+// expandHome expands a leading ~/ or ~\ to the current user's profile directory.
+func expandHome(path string) string {
+	if path == "" {
+		return ""
+	}
+	if path == "~" {
+		return os.Getenv("USERPROFILE")
+	}
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+		userProfile := os.Getenv("USERPROFILE")
+		if userProfile != "" {
+			return filepath.Join(userProfile, path[2:])
+		}
+	}
+	return path
+}
+
 func LoadConfig(projectRoot string) (*Config, error) {
 	cfgPath := filepath.Join(projectRoot, "config.yaml")
 	data, err := os.ReadFile(cfgPath)
@@ -41,7 +59,8 @@ func LoadConfig(projectRoot string) (*Config, error) {
 		return nil, err
 	}
 
-	// Resolve screenshots dir default if empty
+	// Expand ~/ and resolve defaults
+	cfg.Screenshots.Directory = expandHome(cfg.Screenshots.Directory)
 	if cfg.Screenshots.Directory == "" {
 		userProfile := os.Getenv("USERPROFILE")
 		if userProfile != "" {
@@ -49,7 +68,7 @@ func LoadConfig(projectRoot string) (*Config, error) {
 		}
 	}
 
-	// Resolve storage db default if empty
+	cfg.Storage.DbPath = expandHome(cfg.Storage.DbPath)
 	if cfg.Storage.DbPath == "" {
 		userProfile := os.Getenv("USERPROFILE")
 		if userProfile != "" {

@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -13,26 +14,29 @@ func SendWindowsToast(title, body, actionCommand string) error {
 	xml.EscapeText(&escapedTitleBuffer{dst: &escapedTitle}, []byte(title))
 	xml.EscapeText(&escapedBodyBuffer{dst: &escapedBody}, []byte(body))
 
+	activation := ""
 	actionElem := ""
 	if actionCommand != "" {
-		actionElem = fmt.Sprintf(`<action activationType="protocol" arguments="%s" content="Open Dashboard"/>`, actionCommand)
+		activation = fmt.Sprintf(`launch="%s" activationType="protocol"`, actionCommand)
+		actionElem = fmt.Sprintf(`<actions><action activationType="protocol" arguments="%s" content="Open Dashboard"/></actions>`, actionCommand)
 	}
 
-	xmlPayload := fmt.Sprintf(`<toast launch="%s"><visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual><actions>%s<action activationType="system" arguments="dismiss" content="Dismiss"/></actions></toast>`, actionCommand, escapedTitle, escapedBody, actionElem)
+	xmlPayload := fmt.Sprintf(`<toast %s><visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual>%s</toast>`, activation, escapedTitle, escapedBody, actionElem)
+
+	// Escape single quotes for PowerShell string literal
+	psXML := strings.ReplaceAll(xmlPayload, "'", "''")
 
 	psScript := fmt.Sprintf(`
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$template = @'
-%s
-'@
+
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$xml.LoadXml($template)
+$xml.LoadXml('%s')
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('DeskPilot').Show($toast)
-`, xmlPayload)
+`, psXML)
 
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", psScript)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
 		HideWindow:    true,
