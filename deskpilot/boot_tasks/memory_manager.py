@@ -395,4 +395,10 @@ def perform_periodic_memory_cleanup(
     res.processes_trimmed = trimmed
     res.processes_skipped = skipped
 
+    # 4. Purge Standby List (converts trimmed pages & disk cache to 100% free RAM)
+    sb_ok, sb_err = purge_standby_list(low_priority_only=False)
+    res.standby_purged = sb_ok
+    if sb_err:
+        res.errors.append(f"Standby purge: {sb_err}")
+
     return res

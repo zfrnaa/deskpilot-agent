@@ -71,22 +71,27 @@ def test_perform_game_standby_purge():
 def test_perform_periodic_memory_cleanup_skips_when_gaming():
     with patch("deskpilot.boot_tasks.memory_manager.detect_active_game", return_value="tslgame.exe"), \
          patch("deskpilot.boot_tasks.memory_manager.flush_modified_page_list") as mock_flush, \
-         patch("deskpilot.boot_tasks.memory_manager.trim_user_working_sets") as mock_trim:
+         patch("deskpilot.boot_tasks.memory_manager.empty_system_working_set") as mock_sys, \
+         patch("deskpilot.boot_tasks.memory_manager.trim_user_working_sets") as mock_trim, \
+         patch("deskpilot.boot_tasks.memory_manager.purge_standby_list") as mock_standby:
         
-        # When gaming, cleanup must strictly skip!
+        # When gaming, ALL cleanup (modified, system working set, user working sets, standby) must strictly skip!
         res = perform_periodic_memory_cleanup()
         assert res.game_running is True
         assert res.active_game == "tslgame.exe"
         assert "Skipped periodic working sets" in res.errors[0]
         assert mock_flush.call_count == 0
+        assert mock_sys.call_count == 0
         assert mock_trim.call_count == 0
+        assert mock_standby.call_count == 0
 
 
 def test_perform_periodic_memory_cleanup_executes_when_not_gaming():
     with patch("deskpilot.boot_tasks.memory_manager.detect_active_game", return_value=None), \
          patch("deskpilot.boot_tasks.memory_manager.flush_modified_page_list", return_value=(True, None)), \
          patch("deskpilot.boot_tasks.memory_manager.empty_system_working_set", return_value=(True, None)), \
-         patch("deskpilot.boot_tasks.memory_manager.trim_user_working_sets", return_value=(15, 5)):
+         patch("deskpilot.boot_tasks.memory_manager.trim_user_working_sets", return_value=(15, 5)), \
+         patch("deskpilot.boot_tasks.memory_manager.purge_standby_list", return_value=(True, None)) as mock_standby:
 
         res = perform_periodic_memory_cleanup()
         assert res.game_running is False
@@ -94,3 +99,5 @@ def test_perform_periodic_memory_cleanup_executes_when_not_gaming():
         assert res.system_working_set_emptied is True
         assert res.processes_trimmed == 15
         assert res.processes_skipped == 5
+        assert res.standby_purged is True
+        assert mock_standby.call_count == 1
