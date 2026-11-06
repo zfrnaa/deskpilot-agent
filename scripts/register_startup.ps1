@@ -185,18 +185,23 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
 
                 Write-Host "[OK] Scheduled task '$TaskName' registered successfully." -ForegroundColor Green
 
-                # Also register background autonomous watcher daemon
+                # Also register background autonomous watcher daemon (native Go binary if present, else fallback)
                 try {
-                    if (Test-Path $conhostPath) {
+                    $goDaemonExe = Join-Path $WorkingDirectory "deskpilot-daemon.exe"
+                    if (Test-Path $goDaemonExe) {
+                        $daemonExec = $goDaemonExe
+                        $daemonAction = New-ScheduledTaskAction -Execute $daemonExec -WorkingDirectory $WorkingDirectory
+                    } elseif (Test-Path $conhostPath) {
                         $daemonExec = $conhostPath
                         $daemonArgs = "--headless `"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot --daemon"
+                        $daemonAction = New-ScheduledTaskAction -Execute $daemonExec -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
                     } else {
                         $powershellExe = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
                         if (-not $powershellExe) { $powershellExe = "powershell.exe" }
                         $daemonExec = $powershellExe
                         $daemonArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' run --directory '$safeWorkingDirectory' deskpilot --daemon`""
+                        $daemonAction = New-ScheduledTaskAction -Execute $daemonExec -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
                     }
-                    $daemonAction = New-ScheduledTaskAction -Execute $daemonExec -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
                     $daemonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
                     $daemonPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel $runLevel
                     $daemonSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
