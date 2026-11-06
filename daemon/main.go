@@ -81,6 +81,19 @@ func main() {
 	}
 }
 
+func dispatchAlert(title, body, actionCommand string) {
+	if cfg != nil && cfg.Daemon.NotificationStyle == "toast" {
+		if err := notify.SendWindowsToast(title, body, actionCommand); err != nil {
+			log.Printf("SendWindowsToast error: %v", err)
+		}
+	} else {
+		if err := notify.ShowBentoNotification(title, body, actionCommand); err != nil {
+			log.Printf("ShowBentoNotification error: %v", err)
+			_ = notify.SendWindowsToast(title, body, actionCommand)
+		}
+	}
+}
+
 func checkThresholds() {
 	if cfg == nil {
 		return
@@ -92,11 +105,9 @@ func checkThresholds() {
 		if err != nil {
 			log.Printf("watcher error on %s: %v", cfg.Screenshots.Directory, err)
 		} else if len(shots) >= cfg.Daemon.ScreenshotThreshold {
-			title := "DeskPilot Screenshot Triage"
-			body := fmt.Sprintf("%d screenshots pending in buffer. Click to open dashboard.", len(shots))
-			if err := notify.SendWindowsToast(title, body, "deskpilot://open"); err != nil {
-				log.Printf("SendWindowsToast error: %v", err)
-			}
+			title := "Screenshot Triage Alert"
+			body := fmt.Sprintf("%d screenshots accumulated in buffer. Ready to classify and archive to Notion.", len(shots))
+			dispatchAlert(title, body, "deskpilot://open")
 		}
 	}
 
@@ -104,9 +115,9 @@ func checkThresholds() {
 	if store != nil {
 		trig, err := watcher.ShouldTriggerDownloads(store, cfg.Daemon.DownloadsCadenceDays)
 		if err == nil && trig {
-			title := "DeskPilot Downloads Hygiene"
+			title := "Downloads Hygiene Alert"
 			body := "5-day downloads hygiene cadence reached. Ready to organize files."
-			_ = notify.SendWindowsToast(title, body, "deskpilot://open")
+			dispatchAlert(title, body, "deskpilot://open")
 		}
 	}
 }

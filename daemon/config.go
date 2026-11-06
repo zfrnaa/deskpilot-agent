@@ -17,6 +17,7 @@ type Config struct {
 		PollIntervalSeconds  float64 `yaml:"poll_interval_seconds"`
 		ScreenshotThreshold  int     `yaml:"screenshot_threshold"`
 		DownloadsCadenceDays int     `yaml:"downloads_cadence_days"`
+		NotificationStyle    string  `yaml:"notification_style"` // "bento" or "toast"
 	} `yaml:"daemon"`
 	Storage struct {
 		Enabled bool   `yaml:"enabled"`
@@ -54,6 +55,7 @@ func LoadConfig(projectRoot string) (*Config, error) {
 	cfg.Daemon.PollIntervalSeconds = 60
 	cfg.Daemon.ScreenshotThreshold = 10
 	cfg.Daemon.DownloadsCadenceDays = 5
+	cfg.Daemon.NotificationStyle = "bento"
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
