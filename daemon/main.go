@@ -152,4 +152,18 @@ func checkThresholds() {
 			dispatchAlert(title, body, "deskpilot://open")
 		}
 	}
+
+	// 3. Periodic memory optimization check
+	if store != nil && cfg.Memory.Enabled && cfg.Memory.PeriodicCleanupEnabled {
+		trig, err := watcher.ShouldTriggerMemoryCleanup(
+			store,
+			cfg.Memory.PeriodicIntervalMinutes,
+			cfg.Memory.HighMemoryLoadThresholdPercent,
+		)
+		if err == nil && trig {
+			// Trigger silent working sets trimming & record timestamp in SQLite
+			_ = runner.RunDeskPilotSilent(projectRoot, "--clear-ram")
+			_ = store.RecordTimestamp(db.MemoryCleanupLastTriggerKey)
+		}
+	}
 }

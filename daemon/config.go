@@ -23,6 +23,12 @@ type Config struct {
 		Enabled bool   `yaml:"enabled"`
 		DbPath  string `yaml:"db_path"`
 	} `yaml:"storage"`
+	Memory struct {
+		Enabled                         bool `yaml:"enabled"`
+		PeriodicCleanupEnabled          bool `yaml:"periodic_cleanup_enabled"`
+		PeriodicIntervalMinutes         int  `yaml:"periodic_interval_minutes"`
+		HighMemoryLoadThresholdPercent int  `yaml:"high_memory_load_threshold_percent"`
+	} `yaml:"memory"`
 }
 
 // expandHome expands a leading ~/ or ~\ to the current user's profile directory.
@@ -56,6 +62,10 @@ func LoadConfig(projectRoot string) (*Config, error) {
 	cfg.Daemon.ScreenshotThreshold = 10
 	cfg.Daemon.DownloadsCadenceDays = 5
 	cfg.Daemon.NotificationStyle = "bento"
+	cfg.Memory.Enabled = true
+	cfg.Memory.PeriodicCleanupEnabled = true
+	cfg.Memory.PeriodicIntervalMinutes = 30
+	cfg.Memory.HighMemoryLoadThresholdPercent = 75
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
