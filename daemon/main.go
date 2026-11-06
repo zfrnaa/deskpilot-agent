@@ -72,9 +72,13 @@ func main() {
 			_ = runner.RunDeskPilotInteractive(projectRoot, "--tui")
 		},
 		OnClearRAM: func() {
-			// Trigger Python memory optimization pipeline silently and show Bento notification
+			// Trigger Python memory optimization pipeline with elevated privileges
 			go func() {
-				_ = runner.RunDeskPilotSilent(projectRoot, "--clear-ram")
+				err := runner.RunDeskPilotElevated(projectRoot, "--clear-ram")
+				if err != nil {
+					// Fallback to silent non-elevated if UAC is canceled
+					_ = runner.RunDeskPilotSilent(projectRoot, "--clear-ram")
+				}
 				_ = notify.ShowBentoNotification("Memory Optimization", "Standby list purged and process working sets trimmed.", "")
 			}()
 		},
