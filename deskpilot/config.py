@@ -260,6 +260,33 @@ class DaemonConfig(BaseModel):
     downloads_cadence_days: int = 5
 
 
+
+class MemoryConfig(BaseModel):
+    """Configuration for RAMMap-style Standby list purge and memory management."""
+
+    enabled: bool = True
+    standby_purge_on_game: bool = True
+    periodic_cleanup_enabled: bool = True
+    periodic_interval_minutes: int = 30
+    high_memory_load_threshold_percent: int = 75
+    game_processes: list[str] = Field(
+        default_factory=lambda: [
+            "tslgame.exe",
+            "tslgame_uc.exe",
+            "tslgame_be.exe",
+            "pubg.exe",
+            "steam.exe",
+            "epicgameslauncher.exe",
+            "riotclientservices.exe",
+            "valorant.exe",
+            "cs2.exe",
+            "dota2.exe",
+            "overwatch.exe",
+            "r5apex.exe",
+        ]
+    )
+
+
 class Settings(BaseSettings):
     """Global configuration settings for DeskPilot."""
 
@@ -280,6 +307,7 @@ class Settings(BaseSettings):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     news: NewsConfig = Field(default_factory=NewsConfig)
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
 

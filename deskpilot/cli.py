@@ -138,7 +138,14 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     news_enabled = getattr(settings, "news", None) and settings.news.enabled
     if news_enabled:
         from deskpilot.boot_tasks.news_digest import fetch_morning_news
-        boot_coros.append(fetch_morning_news(enabled=True))
+        store_inst = None
+        if getattr(settings, "storage", None) and settings.storage.enabled:
+            try:
+                from deskpilot.storage.store import get_store
+                store_inst = get_store(settings.get_resolved_storage_path())
+            except Exception:
+                pass
+        boot_coros.append(fetch_morning_news(enabled=True, store=store_inst))
 
     results = await asyncio.gather(*boot_coros, return_exceptions=True)
 
@@ -632,6 +639,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action="store_false",
         dest="tui",
         help="Launch classic Rich terminal dashboard instead of TUI",
+    )
+    parser.add_argument(
+        "--clear-ram",
+        action="store_true",
+        help="Purge Windows standby list and optimize physical RAM",
     )
     parser.add_argument(
         "--daemon",
@@ -1178,6 +1190,7 @@ async def main_async(
     local_only: bool = False,
     storage_status: bool = False,
     use_tui: bool = False,
+    clear_ram: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -1187,6 +1200,26 @@ async def main_async(
         except Exception as e:
             c.print(f"[red]Error loading configuration: {e}[/red]")
             return 1
+
+    if clear_ram:
+        from deskpilot.boot_tasks.memory_manager import (
+            get_system_memory_status,
+            perform_game_standby_purge,
+            perform_periodic_memory_cleanup,
+        )
+        before_mem = get_system_memory_status()
+        c.print(f"[bold cyan]Physical Memory Before:[/bold cyan] {before_mem.used_gb:.1f} GB / {before_mem.total_gb:.1f} GB ({before_mem.memory_load_percent}% load)")
+        c.print("[cyan]Purging Windows Standby List & Trimming Inactive Working Sets...[/cyan]")
+        purge_res = perform_game_standby_purge()
+        clean_res = perform_periodic_memory_cleanup(force_even_if_gaming=True)
+        after_mem = get_system_memory_status()
+        c.print(f"[bold green]Memory Optimization Complete:[/bold green] Available: [bold cyan]{after_mem.available_gb:.1f} GB[/bold cyan] (Load: {after_mem.memory_load_percent}%)")
+        if purge_res.standby_purged:
+            c.print("  [green]✓ Standby List purged[/green]")
+        if clean_res.modified_flushed:
+            c.print("  [green]✓ Modified Page List committed to disk[/green]")
+        c.print(f"  [green]✓ Trimmed {clean_res.processes_trimmed} user process working sets[/green]")
+        return 0
 
     if storage_status:
         show_storage_status(settings, console=c)
@@ -1341,6 +1374,8 @@ def main(args: list[str] | None = None) -> None:
                     )
                 )
             )
+        elif parsed.clear_ram:
+            sys.exit(asyncio.run(main_async(clear_ram=True)))
         elif parsed.storage_status:
             sys.exit(asyncio.run(main_async(storage_status=True)))
         elif parsed.check_tracing:

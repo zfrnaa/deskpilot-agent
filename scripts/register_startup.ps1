@@ -118,6 +118,10 @@ if (-not $wtCommand) {
     $wtPath = $wtCommand.Source
 }
 
+# Check for conhost.exe to enable truly headless background execution without triggering Windows Terminal
+$conhostCmd = Get-Command "conhost.exe" -ErrorAction SilentlyContinue
+$conhostPath = if ($conhostCmd) { $conhostCmd.Source } else { "C:\WINDOWS\system32\conhost.exe" }
+
 $safeWorkingDirectory = $WorkingDirectory.Replace("'", "''")
 $safeUvPath = $uvPath.Replace("'", "''")
 
@@ -126,14 +130,19 @@ if ($wtPath -and -not $StartupFlag) {
     $taskArgs = "-w 0 nt -d `"$WorkingDirectory`" `"$uvPath`" $cliArgs"
     Write-Host "Configuring launch via Windows Terminal: $wtPath" -ForegroundColor Cyan
 } elseif ($StartupFlag) {
-    # Launch silently in background without flashing a console window
-    $psCmd = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
-    if ($psCmd) {
-        $execPath = $psCmd
-        $taskArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' $cliArgs`""
+    # Launch truly headless via conhost --headless to bypass Windows Terminal delegation completely
+    if (Test-Path $conhostPath) {
+        $execPath = $conhostPath
+        $taskArgs = "--headless `"$uvPath`" $cliArgs"
     } else {
-        $execPath = $uvPath
-        $taskArgs = $cliArgs
+        $psCmd = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
+        if ($psCmd) {
+            $execPath = $psCmd
+            $taskArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' $cliArgs`""
+        } else {
+            $execPath = $uvPath
+            $taskArgs = $cliArgs
+        }
     }
     Write-Host "Configuring silent background launch: $execPath $taskArgs" -ForegroundColor Cyan
 } else {
@@ -178,10 +187,16 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
 
                 # Also register background autonomous watcher daemon
                 try {
-                    $powershellExe = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
-                    if (-not $powershellExe) { $powershellExe = "powershell.exe" }
-                    $daemonArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' run --directory '$safeWorkingDirectory' deskpilot --daemon`""
-                    $daemonAction = New-ScheduledTaskAction -Execute $powershellExe -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
+                    if (Test-Path $conhostPath) {
+                        $daemonExec = $conhostPath
+                        $daemonArgs = "--headless `"$uvPath`" run --directory `"$WorkingDirectory`" deskpilot --daemon"
+                    } else {
+                        $powershellExe = (Get-Command "powershell.exe" -ErrorAction SilentlyContinue).Source
+                        if (-not $powershellExe) { $powershellExe = "powershell.exe" }
+                        $daemonExec = $powershellExe
+                        $daemonArgs = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location -LiteralPath '$safeWorkingDirectory'; & '$safeUvPath' run --directory '$safeWorkingDirectory' deskpilot --daemon`""
+                    }
+                    $daemonAction = New-ScheduledTaskAction -Execute $daemonExec -Argument $daemonArgs -WorkingDirectory $WorkingDirectory
                     $daemonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
                     $daemonPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel $runLevel
                     $daemonSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)

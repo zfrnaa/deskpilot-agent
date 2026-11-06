@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from deskpilot.boot_tasks.memory_manager import (
+    detect_active_game,
+    get_system_memory_status,
+    perform_game_standby_purge,
+    perform_periodic_memory_cleanup,
+)
 from deskpilot.config import Settings
 from deskpilot.storage.store import SQLiteStore
 from deskpilot.ui.notifications import send_windows_toast
@@ -17,6 +23,8 @@ from deskpilot.ui.notifications import send_windows_toast
 DAEMON_NAMESPACE = ("daemon", "cadence")
 DOWNLOADS_LAST_TRIGGER_KEY = "downloads_last_triage_ts"
 MONTHLY_HYGIENE_LAST_TRIGGER_KEY = "monthly_hygiene_last_run_ts"
+MEMORY_CLEANUP_LAST_TRIGGER_KEY = "memory_cleanup_last_run_ts"
+GAME_PREVIOUS_ACTIVE_KEY = "game_previous_active_name"
 
 
 def should_trigger_monthly_hygiene(
@@ -39,6 +47,37 @@ def record_monthly_hygiene_run(store: SQLiteStore) -> None:
     store.put(
         DAEMON_NAMESPACE,
         MONTHLY_HYGIENE_LAST_TRIGGER_KEY,
+        {"timestamp": time.time(), "recorded_at": datetime.now(timezone.utc).isoformat()},
+    )
+
+
+def should_trigger_periodic_memory_clean(
+    store: SQLiteStore,
+    cadence_minutes: int = 30,
+    memory_load_threshold: int = 75,
+) -> bool:
+    """Check if periodic memory cleanup is due (by time or high memory load)."""
+    # 1. High memory load threshold check
+    mem_stat = get_system_memory_status()
+    if mem_stat.memory_load_percent >= memory_load_threshold:
+        return True
+
+    # 2. Time cadence check
+    item = store.get(DAEMON_NAMESPACE, MEMORY_CLEANUP_LAST_TRIGGER_KEY)
+    now_ts = time.time()
+    if item is None:
+        return True
+
+    last_ts = item.value.get("timestamp", 0)
+    seconds_threshold = cadence_minutes * 60
+    return (now_ts - last_ts) >= seconds_threshold
+
+
+def record_memory_cleanup_run(store: SQLiteStore) -> None:
+    """Update last run timestamp for periodic memory cleanup."""
+    store.put(
+        DAEMON_NAMESPACE,
+        MEMORY_CLEANUP_LAST_TRIGGER_KEY,
         {"timestamp": time.time(), "recorded_at": datetime.now(timezone.utc).isoformat()},
     )
 
@@ -87,10 +126,16 @@ class DaemonCycleResult:
         screenshots_count: int = 0,
         screenshot_triggered: bool = False,
         downloads_triggered: bool = False,
+        game_standby_purged: bool = False,
+        memory_cleanup_triggered: bool = False,
+        active_game: str | None = None,
     ):
         self.screenshots_count = screenshots_count
         self.screenshot_triggered = screenshot_triggered
         self.downloads_triggered = downloads_triggered
+        self.game_standby_purged = game_standby_purged
+        self.memory_cleanup_triggered = memory_cleanup_triggered
+        self.active_game = active_game
 
 
 async def run_daemon_tick(
@@ -100,10 +145,46 @@ async def run_daemon_tick(
     downloads_cadence_days: int = 5,
     send_notifications: bool = True,
 ) -> DaemonCycleResult:
-    """Perform a single daemon check cycle across screenshots and downloads."""
+    """Perform a single daemon check cycle across screenshots, downloads, and memory/game state."""
     result = DaemonCycleResult()
 
-    # 1. Inspect screenshots directory
+    # 1. Memory Management & Game Launch Standby Purge
+    mem_cfg = getattr(settings, "memory", None)
+    if mem_cfg and mem_cfg.enabled:
+        active_game = detect_active_game(mem_cfg.game_processes)
+        result.active_game = active_game
+
+        prev_game_item = store.get(DAEMON_NAMESPACE, GAME_PREVIOUS_ACTIVE_KEY)
+        prev_game = prev_game_item.value.get("name") if prev_game_item else None
+
+        # Game just launched (newly detected in this tick)
+        if active_game and active_game != prev_game:
+            if mem_cfg.standby_purge_on_game:
+                clean_res = perform_game_standby_purge(mem_cfg.game_processes)
+                result.game_standby_purged = clean_res.standby_purged
+                if send_notifications:
+                    send_windows_toast(
+                        title="DeskPilot Gaming Optimization",
+                        message=f"{active_game.upper()} detected. Purged Windows Standby RAM cache for smooth gameplay.",
+                        action_command="deskpilot://open",
+                    )
+            store.put(DAEMON_NAMESPACE, GAME_PREVIOUS_ACTIVE_KEY, {"name": active_game})
+        elif not active_game and prev_game:
+            # Game was closed
+            store.put(DAEMON_NAMESPACE, GAME_PREVIOUS_ACTIVE_KEY, {"name": None})
+
+        # Periodic Memory Maintenance (ONLY when NOT gaming!)
+        if not active_game and mem_cfg.periodic_cleanup_enabled:
+            if should_trigger_periodic_memory_clean(
+                store,
+                cadence_minutes=mem_cfg.periodic_interval_minutes,
+                memory_load_threshold=mem_cfg.high_memory_load_threshold_percent,
+            ):
+                perform_periodic_memory_cleanup(mem_cfg.game_processes, force_even_if_gaming=False)
+                record_memory_cleanup_run(store)
+                result.memory_cleanup_triggered = True
+
+    # 2. Inspect screenshots directory
     screenshots_dir = settings.screenshots.get_resolved_directory()
     eligible_screens = count_eligible_screenshots(screenshots_dir)
     result.screenshots_count = len(eligible_screens)
@@ -117,7 +198,7 @@ async def run_daemon_tick(
                 action_command="deskpilot://open",
             )
 
-    # 2. Inspect downloads cadence
+    # 3. Inspect downloads cadence
     if should_trigger_downloads_triage(store, cadence_days=downloads_cadence_days):
         result.downloads_triggered = True
         if send_notifications:
