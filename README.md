@@ -23,8 +23,8 @@ When you need it, run on-demand agents to triage screenshots to Notion, organize
 DeskPilot launches with an interactive **Bento TUI dashboard** (System Hygiene, Package Updates, Today's Agenda, and Floorp Bookmarks) alongside logon toast notifications:
 
 <p align="center">
-  <img src="assets/DeskPilotDashboard.png" alt="DeskPilot Bento Dashboard" width="49%" />
-  <img src="assets/DeskPilotToast.png" alt="Startup Notification Toast" width="49%" />
+  <img src="assets/DeskPilotDashboard.png" alt="DeskPilot Bento Dashboard" width="64%" />
+  <img src="assets/DeskPilotToast.png" alt="Startup Notification Toast" width="34%" />
 </p>
 
 ---
