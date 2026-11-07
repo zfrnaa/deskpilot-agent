@@ -137,7 +137,7 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
 
     news_enabled = getattr(settings, "news", None) and settings.news.enabled
     if news_enabled:
-        from deskpilot.boot_tasks.news_digest import fetch_morning_news
+        from deskpilot.boot_tasks.news_digest import fetch_today_news
         store_inst = None
         if getattr(settings, "storage", None) and settings.storage.enabled:
             try:
@@ -145,19 +145,19 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
                 store_inst = get_store(settings.get_resolved_storage_path())
             except Exception:
                 pass
-        boot_coros.append(fetch_morning_news(enabled=True, store=store_inst))
+        boot_coros.append(fetch_today_news(enabled=True, store=store_inst))
 
     results = await asyncio.gather(*boot_coros, return_exceptions=True)
 
     if news_enabled:
         temp_res, winget_res, cal_res, news_res = results
         if isinstance(news_res, Exception):
-            state.morning_news = None
+            state.today_news = None
         else:
-            state.morning_news = news_res
+            state.today_news = news_res
     else:
         temp_res, winget_res, cal_res = results
-        state.morning_news = None
+        state.today_news = None
 
     # 1. System hygiene (Daily 24h Temp + Auto Monthly SystemCare if 30 days elapsed)
     if isinstance(temp_res, Exception):
@@ -193,7 +193,7 @@ async def run_phase1_boot_sequence(settings: Settings) -> BootState:
     else:
         state.calendar_agenda = cal_res
 
-    # Storage Checkpoint Pruning (Morning Boot Hygiene)
+    # Storage Checkpoint Pruning (Boot Hygiene)
     if getattr(settings, "storage", None) and settings.storage.enabled:
         try:
             from deskpilot.storage.maintenance import prune_stale_checkpoints
@@ -384,14 +384,14 @@ def _create_calendar_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 
 
 def _create_news_panel(state: BootState, unicode_ok: bool = True) -> Panel:
-    """Build the Bento-styled Rich panel for top curated morning news headlines."""
+    """Build the Bento-styled Rich panel for top curated today's news headlines."""
     from deskpilot.boot_tasks.news_digest import NewsDigestResult
 
-    mn = getattr(state, "morning_news", None)
+    mn = getattr(state, "today_news", None)
     if mn is None or not isinstance(mn, NewsDigestResult) or not mn.headlines:
         return ui_theme.card_panel(
             Text("No news headlines fetched or offline", style="dim"),
-            "Morning Briefing (Top Headlines)",
+            "Today Briefing (Top Headlines)",
             "yellow",
             "[NEWS]",
         )
@@ -419,7 +419,7 @@ def _create_news_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 
     return ui_theme.card_panel(
         "\n".join(lines),
-        "Morning Briefing (Top Headlines)",
+        "Today Briefing (Top Headlines)",
         "yellow",
         "[NEWS]",
     )
@@ -430,7 +430,7 @@ def render_dashboard(
     console: Console | None = None,
     settings: Settings | None = None,
 ) -> None:
-    """Render the morning boot terminal dashboard using Rich components."""
+    """Render the boot terminal dashboard using Rich components."""
     c = ui_theme.get_console(console)
 
     # Header banner (block-art wordmark, or a single line on narrow terminals)
@@ -468,7 +468,7 @@ def render_dashboard(
     calendar_panel = _create_calendar_panel(state, unicode_ok=unicode_ok)
 
     # --- Two-column Bento Grid Layout ---
-    # Left column: Workflow Pipeline Status + Morning News Feed + (optional) Floorp Bookmarks
+    # Left column: Workflow Pipeline Status + Today's News Feed + (optional) Floorp Bookmarks
     # Right column: System Hygiene + Today's Agenda + Package Updates
     left_table = Table.grid(expand=True, padding=(0, 0))
     right_table = Table.grid(expand=True, padding=(0, 0))
@@ -484,7 +484,7 @@ def render_dashboard(
     )
 
     left_table.add_row(pipeline_card)
-    if getattr(state, "morning_news", None) is not None:
+    if getattr(state, "today_news", None) is not None:
         left_table.add_row(_create_news_panel(state, unicode_ok=unicode_ok))
     if state.bookmarks is not None:
         left_table.add_row(_create_bookmarks_panel(state, unicode_ok=unicode_ok))
@@ -1192,7 +1192,7 @@ async def main_async(
     use_tui: bool = False,
     clear_ram: bool = False,
 ) -> int:
-    """Asynchronous entry point for the DeskPilot morning boot orchestrator."""
+    """Asynchronous entry point for the DeskPilot boot orchestrator."""
     c = ui_theme.get_console(console)
     if settings is None:
         try:

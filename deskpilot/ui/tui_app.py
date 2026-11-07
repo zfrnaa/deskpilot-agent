@@ -4,7 +4,7 @@ Matches the Bento-box visual concept mockup:
 - Top Header: Warm Yellow-to-Red gradient stylized ASCII 'DESKPILOT' banner & date/time
 - Left Column:
     1. Agent Workflow Pipeline: Rounded pill cards with step connectors
-    2. Curated Morning News Briefing: Real-time intelligence feed (full 5 headlines)
+    2. Curated Today News Briefing: Real-time intelligence feed (full 5 headlines)
 - Right Column:
     1. System Hygiene & Storage Metrics: Fixed height drive space graph & stats
     2. Daily Digest & Calendar: Timeline markers with priority chips
@@ -256,8 +256,8 @@ class DeskPilotTUI(App):
                     yield Static(pipe_text)
 
                 with Container(classes="bento-card", id="news-card"):
-                    yield Static("Morning Intelligence Briefing (Top Headlines)", classes="card-title")
-                    mn = getattr(self.state, "morning_news", None)
+                    yield Static("Today Intelligence Briefing (Top Headlines)", classes="card-title")
+                    mn = getattr(self.state, "today_news", None)
                     news_text = Text()
                     if mn and isinstance(mn, NewsDigestResult) and mn.headlines:
                         for item in mn.headlines[:5]:
