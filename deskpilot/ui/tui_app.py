@@ -360,12 +360,10 @@ class DeskPilotTUI(App):
                         wu_text.append(f"{wu.error}\n", style="dim")
                     elif wu.total_count > 0:
                         wu_text.append(f"● {wu.total_count} Updates Pending\n", style="bold #ffea79")
-                        for item in wu.updates[:4]:
+                        for item in wu.updates:
                             wu_text.append(f" ▸ {item.name} ", style="bold #ffffff")
                             wu_text.append(f"({item.version} → ", style="dim")
                             wu_text.append(f"{item.available_version})\n", style="bold #56d364")
-                        if len(wu.updates) > 4:
-                            wu_text.append(f"   ... and {len(wu.updates) - 4} more updates\n", style="dim")
                     else:
                         wu_text.append("● Up to date\n", style="bold #56d364")
                         wu_text.append("All packages and system binaries are up to date.\n", style="dim")

@@ -78,8 +78,8 @@ func showContextMenu(hWnd win.HWND) {
 	defer win.DestroyMenu(hMenu)
 
 	appendMenuItem(hMenu, 0, CMD_OPEN_DASHBOARD, "Open Dashboard [TUI]")
-	appendMenuItem(hMenu, 1, CMD_CLEAR_RAM, "⚡ Clear RAM & Working Sets")
-	appendMenuItem(hMenu, 2, CMD_TRIAGE_SHOTS, "📸 Triage Screenshots Now")
+	appendMenuItem(hMenu, 1, CMD_CLEAR_RAM, "Clear RAM")
+	appendMenuItem(hMenu, 2, CMD_TRIAGE_SHOTS, "Triage Screenshots Now")
 	appendSeparator(hMenu, 3)
 	appendMenuItem(hMenu, 4, CMD_EXIT, "Exit")
 
