@@ -1,6 +1,6 @@
 # DeskPilot
 
-> **Your personal morning routine on autopilot.**
+> **Your personal routine on autopilot.**
 
 Every time you log into your computer, DeskPilot cleans up system clutter, checks for software updates, and speaks your daily agenda—all in under a second.
 
@@ -10,11 +10,11 @@ When you're ready, trigger on-demand AI agents to triage scattered screenshots i
 
 ## Why DeskPilot?
 
-- **Starts in Under 1 Second**: No waiting for heavy AI models to load on boot. Local hygiene tasks run concurrently in milliseconds, complete with an optional spoken morning briefing.
+- **Starts in Under 1 Second**: No waiting for heavy AI models to load on boot. Local hygiene tasks run concurrently in milliseconds, complete with an optional spoken today's briefing.
 - **AI Only When You Want It**: Intelligent multi-modal agents (screenshot categorization, downloads cleanup, reading digest) run strictly on demand when you pick them from the menu.
 - **3-in-1 SystemCare Deep Clean**: Safely purges gigabytes of stale developer caches (npm, uv, pip), browser junk, privacy traces, and broken registry references—automatically triggered every 30 days or on demand.
 - **Zero Risk to Your Files**: Destructive actions require your explicit green light. Screenshots are only deleted locally after Notion confirms they are safely saved, and downloads are never moved or deleted without terminal confirmation.
-- **Ready Out of the Box**: You do not need any API keys or external accounts to clean `%TEMP%` files, inspect software updates, or use the morning terminal dashboard.
+- **Ready Out of the Box**: You do not need any API keys or external accounts to clean `%TEMP%` files, inspect software updates, or use the terminal dashboard.
 
 ---
 
@@ -88,7 +88,7 @@ flowchart LR
         P1 --> GCal["GCalendar Sync"]:::boundary
     end
 
-    Dash["Bento TUI & Rich UI<br/>Morning Dashboard"]:::boundary
+    Dash["Bento TUI & Rich UI<br/>Dashboard"]:::boundary
 
     subgraph LAYER2 [" Layer 2: LangGraph Agent & State Persistence "]
         direction TB
@@ -168,7 +168,7 @@ multi-agent-orchestrator-pers1/
 - **Winget Package Updates**: Queries Windows Package Manager for available software upgrades with timeout protection and custom exclusions (`AdvancedSystemCare`, `RevoUninstallerPro`, `DriverBooster`).
 - **Google Calendar Agenda**: Fetches your daily schedule, displaying all-day events, meeting times, Google Meet locations, and token expiry warnings.
 - **Windows Toast & Protocol Ingress**: Emits lightweight Windows notifications on boot with action buttons and custom `deskpilot://` protocol handler registration for instant one-click terminal activation.
-- **Spoken Morning Briefing (Kokoro-ONNX)**: Listens like a personal assistant. Kokoro-ONNX speaks your schedule and hygiene summary in the background through your speakers or headset while your terminal stays snappy.
+- **Spoken Today Briefing (Kokoro-ONNX)**: Listens like a personal assistant. Kokoro-ONNX speaks your schedule and hygiene summary in the background through your speakers or headset while your terminal stays snappy.
 
 ### Intelligent Autonomous Agents & Cleaners (Layer 2)
 - **Smart Screenshot Sorter (Option 1)**: Reads cluttered screenshots using Gemini Vision, identifies diagrams, work notes, or research items, and routes them to dedicated Notion destinations. It strictly preserves unapproved items locally and only cleans up screenshots that are verified as safely synced in Notion.
@@ -194,7 +194,7 @@ multi-agent-orchestrator-pers1/
 ## Quickstart Guide
 
 > [!NOTE]
-> **No API keys needed for the basic morning dashboard.**
+> **No API keys needed for the basic dashboard.**
 > You can run `uv run deskpilot` immediately to clean `%TEMP%` files and inspect Winget updates. Google Calendar, Notion, and Gemini Vision can be connected whenever you're ready.
 
 ### 1. Install `uv`
@@ -307,7 +307,7 @@ DeskPilot includes an on-device neural text-to-speech engine powered by Kokoro-O
 - The connection uses SQLite's read-only immutable flag (`?immutable=1&mode=ro`), allowing you to audit bookmarks even while Floorp is open without lock contention or write hazards.
 
 ### 6. Winget Package Exclusions
-To keep your morning boot dashboard clean and avoid repetitive prompts for software you manage separately or keep pinned, configure `winget.ignore_packages` in `config.yaml`:
+To keep your today's boot dashboard clean and avoid repetitive prompts for software you manage separately or keep pinned, configure `winget.ignore_packages` in `config.yaml`:
 - By default, DeskPilot ignores:
   - `AdvancedSystemCare`
   - `RevoUninstallerPro`
@@ -319,7 +319,7 @@ To keep your morning boot dashboard clean and avoid repetitive prompts for softw
 
 ## Windows Startup Integration
 
-DeskPilot includes PowerShell automation scripts in the `scripts/` directory to automatically launch the morning command center whenever you log into Windows.
+DeskPilot includes PowerShell automation scripts in the `scripts/` directory to automatically launch the command center whenever you log into Windows.
 
 ### Register Startup Task
 Run the registration script from PowerShell:

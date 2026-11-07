@@ -180,7 +180,7 @@ if ($Method -eq "ScheduledTask" -or $Method -eq "All") {
                     -Trigger $trigger `
                     -Principal $principal `
                     -Settings $settings `
-                    -Description "DeskPilot Morning Command Center & Boot Orchestrator" `
+                    -Description "DeskPilot Command Center & Boot Orchestrator" `
                     -Force | Out-Null
 
                 Write-Host "[OK] Scheduled task '$TaskName' registered successfully." -ForegroundColor Green
@@ -267,7 +267,7 @@ if ($Method -eq "StartupFolder" -or $Method -eq "All") {
                 $shortcut.TargetPath = $execPath
                 $shortcut.Arguments = $taskArgs
                 $shortcut.WorkingDirectory = $WorkingDirectory
-                $shortcut.Description = "DeskPilot Morning Command Center"
+                $shortcut.Description = "DeskPilot Command Center"
                 $shortcut.Save()
 
                 Write-Host "[OK] Startup shortcut created successfully at: $shortcutPath" -ForegroundColor Green

@@ -21,7 +21,7 @@ floorp:
   enabled: true
   profile_path: null
 
-# Google Calendar morning agenda
+# Google Calendar day agenda
 calendar:
   enabled: true
   credentials_path: credentials.json
@@ -65,7 +65,7 @@ ollama:
   model: minicpm-v
   url: http://localhost:11434
 
-# Morning news digest (curated topics: Tech, Malaysia, K-Pop/Music, Concerts, Art)
+# Today news digest (curated topics: Tech, Malaysia, K-Pop/Music, Concerts, Art)
 news:
   enabled: true
 
