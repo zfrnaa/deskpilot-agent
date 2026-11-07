@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from deskpilot.boot_tasks.package_checker import (
+    parse_winget_show_output,
+    WingetPackageDetail,
     WingetUpdateItem,
     WingetUpdateResult,
     check_winget_updates,
@@ -430,3 +432,31 @@ def test_no_utf8_bom_in_package_checker_files():
         if py_file.exists():
             raw_bytes = py_file.read_bytes()
             assert not raw_bytes.startswith(b"\xef\xbb\xbf"), f"BOM found in {py_file}"
+
+def test_parse_winget_show_output_with_release_notes():
+    raw_output = """Found Python 3.12 [Python.Python.3.12]
+Version: 3.12.10
+Publisher: Python Software Foundation
+Publisher Url: https://www.python.org/
+Description: Python is an interpreted language.
+Release Notes:
+  - Fixed issue 123
+  - Improved performance in module
+Release Notes Url: https://docs.python.org/release/3.12.10/
+Documentation:
+  Documentation: https://docs.python.org/
+"""
+    detail = parse_winget_show_output(raw_output, package_id="Python.Python.3.12")
+    assert detail.package_id == "Python.Python.3.12"
+    assert "Fixed issue 123" in detail.release_notes
+    assert detail.release_notes_url == "https://docs.python.org/release/3.12.10/"
+    assert "Python is an interpreted language." in detail.description
+    assert detail.publisher == "Python Software Foundation"
+
+
+def test_parse_winget_show_output_empty():
+    detail = parse_winget_show_output("", package_id="Empty.Pkg")
+    assert detail.package_id == "Empty.Pkg"
+    assert detail.release_notes == ""
+    assert detail.release_notes_url == ""
+

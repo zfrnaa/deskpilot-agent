@@ -10,7 +10,9 @@ from deskpilot.boot_tasks.calendar_briefing import (
 from deskpilot.boot_tasks.package_checker import (
     WingetUpdateItem,
     WingetUpdateResult,
+    WingetPackageDetail,
     check_winget_updates,
+    get_winget_package_detail,
 )
 from deskpilot.boot_tasks.system_hygiene import (
     TempCleanResult,
@@ -28,6 +30,8 @@ __all__ = [
     "audit_floorp_bookmarks",
     "clean_temp_directory",
     "run_deep_systemcare_hygiene",
+    "WingetPackageDetail",
+    "get_winget_package_detail",
     "check_winget_updates",
     "fetch_today_agenda",
     "run_calendar_oauth_flow",

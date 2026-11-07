@@ -259,3 +259,145 @@ async def check_winget_updates(
         timed_out=False,
         error=error_msg,
     )
+
+class WingetPackageDetail(BaseModel):
+    """Detailed changelog and metadata for a specific winget package."""
+
+    package_id: str
+    release_notes: str = ""
+    release_notes_url: str = ""
+    description: str = ""
+    publisher: str = ""
+    homepage: str = ""
+    error: str | None = None
+
+
+def parse_winget_show_output(text: str, package_id: str = "") -> WingetPackageDetail:
+    """Parse the stdout of winget show into WingetPackageDetail."""
+    if not text or not text.strip():
+        return WingetPackageDetail(package_id=package_id)
+
+    clean = re.sub(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", text)
+    lines = [line.strip("\r") for line in clean.split("\n")]
+
+    release_notes_url = ""
+    release_notes_lines: list[str] = []
+    in_release_notes = False
+    description_lines: list[str] = []
+    in_description = False
+    publisher = ""
+    homepage = ""
+
+    known_headers = (
+        "Release Notes Url:",
+        "Release Notes:",
+        "Documentation:",
+        "Installer:",
+        "Version:",
+        "Publisher:",
+        "Publisher Url:",
+        "Publisher Support Url:",
+        "Author:",
+        "Moniker:",
+        "Description:",
+        "Homepage:",
+        "License:",
+        "License Url:",
+        "Privacy Url:",
+        "Copyright:",
+        "Copyright Url:",
+        "Tags:",
+        "Agreements:",
+    )
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Release Notes Url:"):
+            release_notes_url = stripped.split(":", 1)[1].strip()
+            in_release_notes = False
+            in_description = False
+            continue
+
+        if stripped.startswith("Homepage:"):
+            homepage = stripped.split(":", 1)[1].strip()
+            in_release_notes = False
+            in_description = False
+            continue
+
+        if stripped.startswith("Publisher:"):
+            publisher = stripped.split(":", 1)[1].strip()
+            in_release_notes = False
+            in_description = False
+            continue
+
+        if stripped.startswith("Release Notes:"):
+            in_release_notes = True
+            in_description = False
+            rest = stripped.split(":", 1)[1].strip()
+            if rest:
+                release_notes_lines.append(rest)
+            continue
+
+        if stripped.startswith("Description:"):
+            in_description = True
+            in_release_notes = False
+            rest = stripped.split(":", 1)[1].strip()
+            if rest:
+                description_lines.append(rest)
+            continue
+
+        if in_release_notes:
+            if not line.startswith(" ") and not line.startswith("\t") and any(stripped.startswith(h) for h in known_headers):
+                in_release_notes = False
+            else:
+                release_notes_lines.append(line)
+
+        elif in_description:
+            if not line.startswith(" ") and not line.startswith("\t") and any(stripped.startswith(h) for h in known_headers):
+                in_description = False
+            else:
+                description_lines.append(line)
+
+    return WingetPackageDetail(
+        package_id=package_id,
+        release_notes="\n".join(release_notes_lines).strip(),
+        release_notes_url=release_notes_url,
+        description="\n".join(description_lines).strip(),
+        publisher=publisher,
+        homepage=homepage,
+    )
+
+
+def _run_winget_show_sync(package_id: str, timeout_secs: int = 10) -> tuple[str, str, int]:
+    """Execute winget show package synchronously with a timeout."""
+    proc = subprocess.run(
+        ["winget", "show", "--id", package_id, "--exact", "--accept-source-agreements"],
+        capture_output=True,
+        text=True,
+        timeout=timeout_secs,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return proc.stdout, proc.stderr, proc.returncode
+
+
+async def get_winget_package_detail(package_id: str, timeout_secs: int = 10) -> WingetPackageDetail:
+    """Asynchronously fetch package details and release notes for a package."""
+    try:
+        stdout, stderr, returncode = await asyncio.to_thread(
+            _run_winget_show_sync,
+            package_id,
+            timeout_secs,
+        )
+    except (subprocess.TimeoutExpired, asyncio.TimeoutError):
+        return WingetPackageDetail(package_id=package_id, error=f"Timeout fetching changelog for {package_id}")
+    except FileNotFoundError:
+        return WingetPackageDetail(package_id=package_id, error="winget not found")
+    except Exception as e:
+        return WingetPackageDetail(package_id=package_id, error=str(e))
+
+    detail = parse_winget_show_output(stdout, package_id=package_id)
+    if returncode != 0 and not detail.release_notes and not detail.release_notes_url:
+        detail.error = stderr.strip() or f"winget show failed with code {returncode}"
+    return detail
+
