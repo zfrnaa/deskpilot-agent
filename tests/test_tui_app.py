@@ -75,3 +75,75 @@ async def test_tui_app_keybindings_exit():
         async with app.run_test() as pilot:
             await pilot.press(key)
             assert app.return_value == 0
+
+@pytest.mark.asyncio
+async def test_tui_app_winget_inspector_modal_open_and_dismiss():
+    """Verify pressing 4 with available updates opens the inspector modal and dismissing returns to dashboard."""
+    state = BootState()
+    state.winget_updates = WingetUpdateResult(
+        total_count=1,
+        updates=[WingetUpdateItem(name="Git", id="Git.Git", version="2.40", available_version="2.41")],
+    )
+    app = DeskPilotTUI(state=state)
+    async with app.run_test() as pilot:
+        await pilot.press("4")
+        await pilot.pause(0.1)
+        assert len(app.screen_stack) == 2
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert len(app.screen_stack) == 1
+
+
+@pytest.mark.asyncio
+async def test_tui_app_winget_inspector_modal_upgrade_action():
+    """Verify pressing 'u' or 'a' inside inspector opens the live upgrade modal inside TUI."""
+    state = BootState()
+    state.winget_updates = WingetUpdateResult(
+        total_count=1,
+        updates=[WingetUpdateItem(name="Git", id="Git.Git", version="2.40", available_version="2.41")],
+    )
+    app = DeskPilotTUI(state=state)
+    async with app.run_test() as pilot:
+        await pilot.press("4")
+        await pilot.pause(0.1)
+        assert len(app.screen_stack) == 2
+        await pilot.press("u")
+        await pilot.pause(0.1)
+        # Verify WingetUpgradeRunModal is pushed onto the screen stack
+        assert len(app.screen_stack) == 3
+        # Dismiss upgrade runner
+        top_screen = app.screen_stack[-1]
+        top_screen._is_running = False
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert len(app.screen_stack) == 2
+
+@pytest.mark.asyncio
+async def test_tui_app_winget_inspector_removes_upgraded_package():
+    """Verify successfully upgraded packages are removed from the list and state syncs."""
+    state = BootState()
+    state.winget_updates = WingetUpdateResult(
+        total_count=2,
+        updates=[
+            WingetUpdateItem(name="Git", id="Git.Git", version="2.40", available_version="2.41"),
+            WingetUpdateItem(name="AWS", id="Amazon.AWSCLI", version="2.0", available_version="2.1"),
+        ],
+    )
+    app = DeskPilotTUI(state=state)
+    async with app.run_test() as pilot:
+        await pilot.press("4")
+        await pilot.pause(0.1)
+        inspector = app.screen_stack[-1]
+        assert len(inspector.updates) == 2
+
+        # Simulate successful single upgrade
+        inspector.handle_upgrade_result("Git.Git", True)
+        assert len(inspector.updates) == 1
+        assert inspector._current_pkg_id == "Amazon.AWSCLI"
+        assert state.winget_updates.total_count == 1
+
+        # Simulate upgrading remaining package
+        inspector.handle_upgrade_result("Amazon.AWSCLI", True)
+        assert len(inspector.updates) == 0
+        assert state.winget_updates.total_count == 0
+

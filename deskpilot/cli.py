@@ -297,7 +297,7 @@ def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
     if state.winget_updates is None or not isinstance(state.winget_updates, WingetUpdateResult):
         return ui_theme.card_panel(
             Text("Check not executed or disabled", style="dim"),
-            "Package Updates (winget)",
+            "Package Updates (winget)(Details, press 4)",
             "blue",
             ui_theme.ICON_WINGET,
         )
@@ -332,7 +332,7 @@ def _create_winget_panel(state: BootState, unicode_ok: bool = True) -> Panel:
 
     return ui_theme.card_panel(
         content,
-        "Package Updates (winget)",
+        "Package Updates (winget)(Details, press 4)",
         "blue",
         ui_theme.ICON_WINGET,
     )

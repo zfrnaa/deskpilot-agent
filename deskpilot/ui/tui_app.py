@@ -20,12 +20,19 @@ from typing import Any
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Input, Static
+import asyncio
+import webbrowser
+from textual.screen import ModalScreen
+from textual.widgets import Input, OptionList, Static
+from textual.widgets.option_list import Option
 
 from deskpilot.boot_tasks import (
     CalendarAgendaResult,
     TempCleanResult,
+    WingetPackageDetail,
+    WingetUpdateItem,
     WingetUpdateResult,
+    get_winget_package_detail,
 )
 from deskpilot.boot_tasks.news_digest import NewsDigestResult
 from deskpilot.config import Settings, load_settings
@@ -159,6 +166,82 @@ Screen {
     color: #ffffff;
 }
 
+WingetInspectorModal {
+    align: center middle;
+}
+
+#inspector-dialog {
+    width: 90%;
+    height: 85%;
+    border: solid #58a6ff;
+    background: #161b22;
+    padding: 0 1;
+    layout: vertical;
+}
+
+#inspector-header {
+    height: 3;
+    border-bottom: solid #30363d;
+    padding-top: 1;
+}
+
+#inspector-body {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#inspector-left-pane {
+    width: 35%;
+    height: 1fr;
+    border-right: solid #30363d;
+    padding-right: 1;
+}
+
+#inspector-pkg-list {
+    height: 1fr;
+    background: #0d1117;
+    border: solid #21262d;
+}
+
+#inspector-right-pane {
+    width: 65%;
+    height: 1fr;
+    padding-left: 1;
+    overflow-y: auto;
+}
+
+#inspector-footer {
+    height: 3;
+    border-top: solid #30363d;
+    padding-top: 1;
+}
+
+WingetUpgradeRunModal {
+    align: center middle;
+}
+
+#upgrade-container {
+    width: 85%;
+    height: 75%;
+    border: solid #56d364;
+    background: #161b22;
+    padding: 1;
+    layout: vertical;
+}
+
+#upgrade-output {
+    height: 1fr;
+    background: #0d1117;
+    border: solid #21262d;
+    overflow-y: auto;
+    padding: 1;
+}
+
+#upgrade-footer {
+    height: 2;
+    margin-top: 1;
+}
+
 #prompt-input:focus {
     border: none;
 }
@@ -209,6 +292,252 @@ def render_arc_gauge(freed_str: str) -> Text:
     t.append("│\n", style="bold #f69d50")
     t.append(" ╰Freed─╯", style="bold #f85149")
     return t
+
+
+class WingetUpgradeRunModal(ModalScreen[bool]):
+    """Live-streaming execution modal for winget package upgrades inside the TUI."""
+
+    def __init__(self, package_id: str | None = None, package_name: str | None = None):
+        super().__init__()
+        self.package_id = package_id
+        self.package_name = package_name or package_id or "All Packages"
+        self._is_running = True
+        self.success = False
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="upgrade-container"):
+            title = f"Upgrading: {self.package_name}" if self.package_id else "Upgrading All Packages"
+            yield Static(Text(title, style="bold #56d364"))
+            init_msg = "Starting winget upgrade process in background...\n"
+            yield Static(Text(init_msg, style="dim"), id="upgrade-output")
+            yield Static(Text("Upgrade in progress... Please wait.", style="dim #ffea79"), id="upgrade-footer")
+
+    def on_mount(self) -> None:
+        self.run_worker(self._run_upgrade(), exclusive=True)
+
+    async def _run_upgrade(self) -> None:
+        cmd = ["winget", "upgrade"]
+        if self.package_id:
+            cmd.extend(["--id", self.package_id, "--exact"])
+        else:
+            cmd.extend(["--all"])
+        cmd.extend(["--include-unknown", "--accept-source-agreements", "--accept-package-agreements"])
+
+        out_box = self.query_one("#upgrade-output", Static)
+        buffer = ""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                decoded = line.decode("utf-8", errors="replace")
+                buffer += decoded
+                out_box.update(buffer)
+            await proc.wait()
+            self._is_running = False
+            self.success = (proc.returncode == 0)
+            status = (
+                "\n\n[Upgrade completed successfully!]\n"
+                if self.success
+                else f"\n\n[Upgrade process exited with code {proc.returncode}.]\n"
+            )
+            buffer += status
+            out_box.update(buffer)
+        except Exception as e:
+            self._is_running = False
+            self.success = False
+            out_box.update(f"Error executing upgrade: {e}")
+
+        footer = self.query_one("#upgrade-footer", Static)
+        footer.update(Text("[Esc / Q] Close and return to Inspector", style="bold #56d364"))
+
+    def on_key(self, event) -> None:
+        key = event.key.lower()
+        if key in ("escape", "q") and not self._is_running:
+            self.dismiss(self.success)
+
+
+class WingetInspectorModal(ModalScreen[int]):
+    """Focused split-pane modal to inspect pending package updates and release notes."""
+
+    def __init__(self, updates: list[WingetUpdateItem]):
+        super().__init__()
+        self.updates = updates
+        self._cache: dict[str, WingetPackageDetail] = {}
+        self._current_pkg_id: str = updates[0].id if updates else ""
+        self._current_url: str = ""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="inspector-dialog"):
+            header_text = Text()
+            header_text.append("Package Update & Changelog Inspector  ", style="bold #58a6ff")
+            header_text.append(f"({len(self.updates)} pending updates)", style="dim")
+            yield Static(header_text, id="inspector-header")
+
+            with Horizontal(id="inspector-body"):
+                with Vertical(id="inspector-left-pane"):
+                    yield Static(Text("Select Package (up/down):", style="bold #c9d1d9"))
+                    ol = OptionList(id="inspector-pkg-list")
+                    for item in self.updates:
+                        label = f"{item.name} ({item.version} -> {item.available_version})"
+                        ol.add_option(Option(label, id=item.id))
+                    yield ol
+
+                with Vertical(id="inspector-right-pane"):
+                    yield Static(Text("Loading changelog and package details...", style="dim"), id="inspector-detail-content")
+
+            footer_text = Text()
+            footer_text.append("Shortcuts: ", style="bold #8b949e")
+            footer_text.append("[U] ", style="bold #ffea79")
+            footer_text.append("Upgrade Selected  ", style="dim")
+            footer_text.append("[A] ", style="bold #ffea79")
+            footer_text.append("Upgrade All  ", style="dim")
+            footer_text.append("[O] ", style="bold #58a6ff")
+            footer_text.append("Open Changelog URL  ", style="dim")
+            footer_text.append("[Esc/Q] ", style="bold #f85149")
+            footer_text.append("Back to Dashboard", style="dim")
+            yield Static(footer_text, id="inspector-footer")
+
+    def on_mount(self) -> None:
+        if self.updates:
+            self.run_worker(self._load_package_detail(self.updates[0].id), exclusive=True)
+
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        pkg_id = str(event.option_id)
+        self._current_pkg_id = pkg_id
+        self.run_worker(self._load_package_detail(pkg_id), exclusive=True)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        # Clicking or pressing Enter selects/inspects the package and keeps focus in TUI
+        pkg_id = str(event.option_id)
+        self._current_pkg_id = pkg_id
+        self.run_worker(self._load_package_detail(pkg_id), exclusive=True)
+
+    async def _load_package_detail(self, pkg_id: str) -> None:
+        detail_static = self.query_one("#inspector-detail-content", Static)
+        detail_static.update(Text(f"Fetching release notes for {pkg_id}...", style="dim"))
+
+        if pkg_id in self._cache:
+            detail = self._cache[pkg_id]
+        else:
+            detail = await get_winget_package_detail(pkg_id, timeout_secs=8)
+            self._cache[pkg_id] = detail
+
+        if self._current_pkg_id != pkg_id:
+            return
+
+        self._current_url = detail.release_notes_url or detail.homepage
+
+        pkg_item = next((u for u in self.updates if u.id == pkg_id), None)
+        title_str = pkg_item.name if pkg_item else pkg_id
+        curr_ver = pkg_item.version if pkg_item else ""
+        next_ver = pkg_item.available_version if pkg_item else ""
+
+        txt = Text()
+        txt.append(title_str + "\n", style="bold #ffffff")
+        txt.append(f"Package ID: {pkg_id}\n", style="dim")
+        txt.append(f"Version: {curr_ver} -> ", style="dim")
+        txt.append(next_ver + "\n", style="bold #56d364")
+
+        if detail.publisher:
+            txt.append(f"Publisher: {detail.publisher}\n", style="dim")
+        if detail.homepage:
+            txt.append(f"Homepage: {detail.homepage}\n", style="dim #58a6ff")
+
+        txt.append("\n" + ("-" * 50) + "\n\n", style="dim")
+
+        if detail.release_notes:
+            txt.append("Release Notes:\n", style="bold #ffea79")
+            txt.append(detail.release_notes + "\n\n", style="#c9d1d9")
+        elif detail.description:
+            txt.append("Description:\n", style="bold #c9d1d9")
+            txt.append(detail.description + "\n\n", style="dim")
+
+        if detail.release_notes_url:
+            txt.append("Release Notes URL:\n", style="bold #58a6ff")
+            txt.append(detail.release_notes_url + "\n", style="underline #58a6ff")
+        elif not detail.release_notes and not detail.description:
+            if detail.error:
+                txt.append(f"Notice: {detail.error}\n", style="dim")
+            else:
+                txt.append("No inline release notes provided in winget repository for this release.\n", style="dim")
+
+        detail_static.update(txt)
+
+    def handle_upgrade_result(self, upgraded_pkg_id: str | None, success: bool | None) -> None:
+        """Remove upgraded package(s) from the inspector list and synchronize app state."""
+        if not success:
+            return
+
+        ol = self.query_one("#inspector-pkg-list", OptionList)
+        detail_static = self.query_one("#inspector-detail-content", Static)
+        header_static = self.query_one("#inspector-header", Static)
+
+        if upgraded_pkg_id is None:
+            # All packages upgraded
+            self.updates.clear()
+            ol.clear_options()
+            self._current_pkg_id = ""
+            detail_static.update(Text("All packages upgraded successfully!\n", style="bold #56d364"))
+        else:
+            self.updates = [u for u in self.updates if u.id != upgraded_pkg_id]
+            try:
+                ol.remove_option(upgraded_pkg_id)
+            except Exception:
+                pass
+
+            if self.updates:
+                next_pkg = self.updates[0]
+                self._current_pkg_id = next_pkg.id
+                self.run_worker(self._load_package_detail(next_pkg.id), exclusive=True)
+            else:
+                self._current_pkg_id = ""
+                detail_static.update(Text("All packages upgraded successfully!\n", style="bold #56d364"))
+
+        # Update modal header count
+        header_text = Text()
+        header_text.append("Package Update & Changelog Inspector  ", style="bold #58a6ff")
+        header_text.append(f"({len(self.updates)} pending updates)", style="dim")
+        header_static.update(header_text)
+
+        # Synchronize with main application state and refresh the dashboard card
+        if isinstance(self.app, DeskPilotTUI):
+            self.app.sync_winget_updates(self.updates)
+
+    def on_key(self, event) -> None:
+        key = event.key.lower()
+        if key in ("escape", "q"):
+            self.dismiss(None)
+        elif key in ("u",):
+            if not self._current_pkg_id or not self.updates:
+                return
+            pkg_id = self._current_pkg_id
+            pkg_item = next((u for u in self.updates if u.id == pkg_id), None)
+            pkg_name = pkg_item.name if pkg_item else pkg_id
+
+            def _on_single_done(success: bool | None) -> None:
+                self.handle_upgrade_result(pkg_id, success)
+
+            self.app.push_screen(WingetUpgradeRunModal(package_id=pkg_id, package_name=pkg_name), _on_single_done)
+        elif key in ("a",):
+            if not self.updates:
+                return
+
+            def _on_all_done(success: bool | None) -> None:
+                self.handle_upgrade_result(None, success)
+
+            self.app.push_screen(WingetUpgradeRunModal(package_id=None, package_name="All Packages"), _on_all_done)
+        elif key in ("o",):
+            if self._current_url:
+                try:
+                    webbrowser.open(self._current_url)
+                except Exception:
+                    pass
 
 
 class DeskPilotTUI(App):
@@ -347,27 +676,9 @@ class DeskPilotTUI(App):
                     yield Static(cal_text)
 
                 with Container(classes="bento-card", id="winget-card"):
-                    yield Static("Package Updates (winget)", classes="card-title")
+                    yield Static("Package Updates (winget)(Details, press 4)", classes="card-title")
                     wu: WingetUpdateResult | None = self.state.winget_updates
-                    wu_text = Text()
-                    if wu is None or not isinstance(wu, WingetUpdateResult):
-                        wu_text.append("○ Check not executed / Disabled\n", style="dim")
-                    elif wu.timed_out:
-                        wu_text.append("● Query timed out\n", style="bold #ffea79")
-                        wu_text.append("Run winget upgrade manually.\n", style="dim")
-                    elif wu.error:
-                        wu_text.append("● Check failed: ", style="bold #f85149")
-                        wu_text.append(f"{wu.error}\n", style="dim")
-                    elif wu.total_count > 0:
-                        wu_text.append(f"● {wu.total_count} Updates Pending\n", style="bold #ffea79")
-                        for item in wu.updates:
-                            wu_text.append(f" ▸ {item.name} ", style="bold #ffffff")
-                            wu_text.append(f"({item.version} → ", style="dim")
-                            wu_text.append(f"{item.available_version})\n", style="bold #56d364")
-                    else:
-                        wu_text.append("● Up to date\n", style="bold #56d364")
-                        wu_text.append("All packages and system binaries are up to date.\n", style="dim")
-                    yield Static(wu_text)
+                    yield Static(self._render_winget_text(wu), id="winget-card-content")
 
         # 3. Bottom Command & Shortcut Dock
         with Vertical(id="dock-container"):
@@ -387,12 +698,71 @@ class DeskPilotTUI(App):
                     id="prompt-input",
                 )
 
+    def _render_winget_text(self, wu: WingetUpdateResult | None) -> Text:
+        """Render rich styled text representation of package updates."""
+        wu_text = Text()
+        if wu is None or not isinstance(wu, WingetUpdateResult):
+            wu_text.append("○ Check not executed / Disabled\n", style="dim")
+        elif wu.timed_out:
+            wu_text.append("● Query timed out\n", style="bold #ffea79")
+            wu_text.append("Run winget upgrade manually.\n", style="dim")
+        elif wu.error:
+            wu_text.append("● Check failed: ", style="bold #f85149")
+            wu_text.append(f"{wu.error}\n", style="dim")
+        elif wu.total_count > 0:
+            wu_text.append(f"● {wu.total_count} Updates Pending\n", style="bold #ffea79")
+            for item in wu.updates:
+                wu_text.append(f" ▸ {item.name} ", style="bold #ffffff")
+                wu_text.append(f"({item.version} → ", style="dim")
+                wu_text.append(f"{item.available_version})\n", style="bold #56d364")
+        else:
+            wu_text.append("● Up to date\n", style="bold #56d364")
+            wu_text.append("All packages and system binaries are up to date.\n", style="dim")
+        return wu_text
+
+    def sync_winget_updates(self, remaining_updates: list[WingetUpdateItem]) -> None:
+        """Update state and re-render dashboard card after packages are upgraded."""
+        if isinstance(self.state.winget_updates, WingetUpdateResult):
+            self.state.winget_updates.updates = list(remaining_updates)
+            self.state.winget_updates.total_count = len(remaining_updates)
+        else:
+            self.state.winget_updates = WingetUpdateResult(
+                total_count=len(remaining_updates),
+                updates=list(remaining_updates),
+            )
+        try:
+            st = self.query_one("#winget-card-content", Static)
+            st.update(self._render_winget_text(self.state.winget_updates))
+        except Exception:
+            pass
+
+    def open_winget_inspector(self) -> None:
+        """Open the full-screen package updates and changelog modal if updates exist."""
+        wu = self.state.winget_updates
+        if isinstance(wu, WingetUpdateResult) and wu.updates:
+            def _on_modal_dismiss(choice: int | None) -> None:
+                if choice is not None:
+                    self.exit(result=choice)
+                else:
+                    try:
+                        inp = self.query_one("#prompt-input", Input)
+                        inp.value = ""
+                        inp.focus()
+                    except Exception:
+                        pass
+
+            self.push_screen(WingetInspectorModal(wu.updates), _on_modal_dismiss)
+        else:
+            self.exit(result=4)
+
     def on_input_changed(self, event: Input.Changed) -> None:
         """Handle immediate hotkey numbers typed into the input prompt."""
         val = event.value.strip().lower()
         if val in ("0", "q"):
             self.exit(result=0)
-        elif val in ("1", "2", "3", "4", "5", "6"):
+        elif val == "4":
+            self.open_winget_inspector()
+        elif val in ("1", "2", "3", "5", "6"):
             self.exit(result=int(val))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -400,7 +770,9 @@ class DeskPilotTUI(App):
         val = event.value.strip().lower()
         if val in ("0", "q", "exit", "quit"):
             self.exit(result=0)
-        elif val in ("1", "2", "3", "4", "5", "6"):
+        elif val == "4":
+            self.open_winget_inspector()
+        elif val in ("1", "2", "3", "5", "6"):
             self.exit(result=int(val))
 
     def on_key(self, event) -> None:
