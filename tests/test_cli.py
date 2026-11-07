@@ -137,7 +137,7 @@ async def test_run_phase1_boot_sequence_runs_concurrently():
         patch("deskpilot.cli.clean_temp_directory", side_effect=slow_task),
         patch("deskpilot.cli.check_winget_updates", side_effect=slow_task),
         patch("deskpilot.cli.fetch_today_agenda", side_effect=slow_task),
-        patch("deskpilot.boot_tasks.news_digest.fetch_morning_news", side_effect=slow_task),
+        patch("deskpilot.boot_tasks.news_digest.fetch_today_news", side_effect=slow_task),
     ):
         start = time.perf_counter()
         state = await run_phase1_boot_sequence(settings)
@@ -746,7 +746,7 @@ async def test_main_async_prompts_and_reauthorizes_calendar(tmp_path: Path) -> N
     state.calendar_agenda = initial_cal_state
 
     new_cal_state = CalendarAgendaResult(
-        events=[CalendarEventItem(id="1", summary="Morning Standup", start_time="09:00", end_time="09:30")],
+        events=[CalendarEventItem(id="1", summary="Today Standup", start_time="09:00", end_time="09:30")],
         total_count=1,
         is_configured=True,
     )

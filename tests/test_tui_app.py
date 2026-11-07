@@ -48,7 +48,7 @@ async def test_tui_app_compose_populated_state():
         total_count=1,
         is_configured=True,
     )
-    state.morning_news = NewsDigestResult(
+    state.today_news = NewsDigestResult(
         headlines=[NewsHeadline(title="New Release", topic="Tech", source="HN", link="https://example.com")],
     )
 

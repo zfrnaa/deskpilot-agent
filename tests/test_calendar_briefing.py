@@ -66,7 +66,7 @@ async def test_fetch_today_agenda_timed_events_parsing_and_ordering() -> None:
         },
         {
             "id": "evt_early",
-            "summary": "Morning Standup",
+            "summary": "Today Standup",
             "start": {"dateTime": "2026-09-09T09:00:00+08:00"},
             "end": {"dateTime": "2026-09-09T09:30:00+08:00"},
             "location": "Google Meet",
@@ -102,7 +102,7 @@ async def test_fetch_today_agenda_timed_events_parsing_and_ordering() -> None:
 
     # Verify chronological ordering
     assert [e.id for e in result.events] == ["evt_early", "evt_mid", "evt_late"]
-    assert result.events[0].summary == "Morning Standup"
+    assert result.events[0].summary == "Today Standup"
     assert result.events[0].location == "Google Meet"
     assert result.events[0].is_all_day is False
     assert result.events[1].summary == "Project Sync"

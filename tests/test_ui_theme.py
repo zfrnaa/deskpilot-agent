@@ -142,7 +142,7 @@ def test_header_fits_and_keeps_block_art_at_test_widths():
         out = console.file.getvalue()
         assert max(len(line) for line in out.splitlines()) <= width
         assert sum(1 for line in out.splitlines() if theme.GLYPH_BLOCK in line) == 5
-        assert "DeskPilot Morning Command Center" in out
+        assert "DeskPilot Command Center" in out
 
 
 def test_panel_drops_icon_when_stream_cannot_encode_it():

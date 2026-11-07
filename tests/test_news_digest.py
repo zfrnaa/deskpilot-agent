@@ -6,7 +6,7 @@ import pytest
 from deskpilot.boot_tasks.news_digest import (
     NewsDigestResult,
     NewsHeadline,
-    fetch_morning_news,
+    fetch_today_news,
     _fetch_feed_items_sync,
     _hash_title,
     get_seen_titles,
@@ -82,7 +82,7 @@ def test_seen_titles_deduplication(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fetch_morning_news_skips_seen(tmp_path):
+async def test_fetch_today_news_skips_seen(tmp_path):
     db_file = tmp_path / "news_skip_store.db"
     store = SQLiteStore(db_path=db_file)
 
@@ -96,7 +96,7 @@ async def test_fetch_morning_news_skips_seen(tmp_path):
     ]
 
     with patch("deskpilot.boot_tasks.news_digest._fetch_topic_with_fallback_sync", return_value=mock_candidates):
-        res = await fetch_morning_news(
+        res = await fetch_today_news(
             topic_configs=[("Tech", "https://mock", None)],
             store=store,
             enabled=True,
@@ -108,7 +108,7 @@ async def test_fetch_morning_news_skips_seen(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fetch_morning_news_disabled():
-    res = await fetch_morning_news(enabled=False)
+async def test_fetch_today_news_disabled():
+    res = await fetch_today_news(enabled=False)
     assert res.headlines == []
     assert res.error is None
