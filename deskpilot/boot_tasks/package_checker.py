@@ -1,4 +1,4 @@
-"""Asynchronous winget package update auditor for morning boot sequence."""
+"""Asynchronous winget package update auditor for boot sequence."""
 
 from __future__ import annotations
 

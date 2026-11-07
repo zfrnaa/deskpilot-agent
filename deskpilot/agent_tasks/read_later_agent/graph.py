@@ -76,7 +76,7 @@ def select_daily_recommendation(
     state: ReadLaterAgentState,
     priority_tags: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Node 2: Selects 1 top pick (priority or oldest) for the user's morning review."""
+    """Node 2: Selects 1 top pick (priority or oldest) for the user's review."""
     items = state.get("unread_items", [])
     if not items:
         return {"recommended_item": None}

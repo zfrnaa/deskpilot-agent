@@ -1,4 +1,4 @@
-"""Fast, dynamic morning news digest via Google News RSS with recency filtering and deduplication."""
+"""Fast, dynamic news today digest via Google News RSS with recency filtering and deduplication."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class NewsHeadline(BaseModel):
-    """Structured representation of a single morning news item."""
+    """Structured representation of a single news item."""
 
     topic: str = "General"
     title: str
@@ -28,7 +28,7 @@ class NewsHeadline(BaseModel):
 
 
 class NewsDigestResult(BaseModel):
-    """Aggregate result from fetching top morning headlines."""
+    """Aggregate result from fetching top today headlines."""
 
     headlines: list[NewsHeadline] = Field(default_factory=list)
     error: str | None = None
@@ -188,7 +188,7 @@ def _fetch_topic_with_fallback_sync(
     return items
 
 
-async def fetch_morning_news(
+async def fetch_today_news(
     topic_configs: list[tuple[str, str, str | None]] | None = None,
     store: SQLiteStore | None = None,
     timeout_seconds: float = 3.5,

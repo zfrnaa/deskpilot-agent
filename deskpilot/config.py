@@ -246,7 +246,7 @@ class MappedSettingsSource(PydanticBaseSettingsSource):
 
 
 class NewsConfig(BaseModel):
-    """Configuration for morning news digest."""
+    """Configuration for today's news digest."""
 
     enabled: bool = True
 
