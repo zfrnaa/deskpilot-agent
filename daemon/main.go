@@ -90,7 +90,7 @@ func main() {
 		},
 	}
 
-	if err := tray.RunTray("DeskPilot Autonomous Daemon", callbacks); err != nil {
+	if err := tray.RunTray("DeskPilot Daemon", callbacks); err != nil {
 		log.Printf("Tray failed: %v", err)
 		// Fallback: stay alive in background loop if tray fails
 		select {}
