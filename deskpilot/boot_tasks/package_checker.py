@@ -401,3 +401,106 @@ async def get_winget_package_detail(package_id: str, timeout_secs: int = 10) -> 
         detail.error = stderr.strip() or f"winget show failed with code {returncode}"
     return detail
 
+class WingetProgressUpdate(BaseModel):
+    """Structured state parsed from a single line or carriage-return chunk of winget upgrade output."""
+
+    phase: str = ""
+    percent: float | None = None
+    downloaded_text: str = ""
+    is_noise: bool = False
+    clean_line: str = ""
+
+
+_BYTE_PROGRESS_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|KiB|MiB|GiB)\s*/\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|KiB|MiB|GiB)",
+    re.IGNORECASE,
+)
+_PERCENT_RE = re.compile(r"(\d{1,3})%")
+_UNIT_MULTIPLIERS = {
+    "b": 1,
+    "kb": 1000,
+    "kib": 1024,
+    "mb": 1000**2,
+    "mib": 1024**2,
+    "gb": 1000**3,
+    "gib": 1024**3,
+}
+
+
+def parse_winget_progress_chunk(raw_chunk: str) -> WingetProgressUpdate:
+    """Parse a raw chunk from winget upgrade stdout into progress state and filtered log text."""
+    clean = re.sub(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", raw_chunk).strip()
+    if not clean:
+        return WingetProgressUpdate(is_noise=True)
+
+    # Pure spinner frames or ASCII progress block lines
+    if clean in ("-", "\\", "|", "/"):
+        return WingetProgressUpdate(is_noise=True)
+
+    has_progress_blocks = any(ch in clean for ch in ("█", "▓", "▒", "░", "â–ˆ", "â–’"))
+
+    # Check for byte download progress: e.g. "12.4 MB / 48.0 MB"
+    m_bytes = _BYTE_PROGRESS_RE.search(clean)
+    if m_bytes:
+        cur_val = float(m_bytes.group(1))
+        cur_unit = m_bytes.group(2).lower()
+        tot_val = float(m_bytes.group(3))
+        tot_unit = m_bytes.group(4).lower()
+
+        cur_bytes = cur_val * _UNIT_MULTIPLIERS.get(cur_unit, 1)
+        tot_bytes = tot_val * _UNIT_MULTIPLIERS.get(tot_unit, 1)
+        pct = min(100.0, max(0.0, (cur_bytes / tot_bytes) * 100.0)) if tot_bytes > 0 else 0.0
+        dl_text = f"{m_bytes.group(1)} {m_bytes.group(2)} / {m_bytes.group(3)} {m_bytes.group(4)}"
+        return WingetProgressUpdate(
+            phase="Downloading installer",
+            percent=round(pct, 1),
+            downloaded_text=dl_text,
+            is_noise=True,
+            clean_line="",
+        )
+
+    # Check for explicit percentage in progress bar lines
+    if has_progress_blocks:
+        m_pct = _PERCENT_RE.search(clean)
+        pct = float(m_pct.group(1)) if m_pct else None
+        return WingetProgressUpdate(
+            phase="Downloading installer" if pct is not None else "",
+            percent=pct,
+            is_noise=True,
+            clean_line="",
+        )
+
+    # Strip leading spinner character if present (e.g. "- Starting package install...")
+    if len(clean) > 2 and clean[0] in ("-", "\\", "|", "/") and clean[1] == " ":
+        clean = clean[2:].strip()
+
+    lower = clean.lower()
+    phase = ""
+    pct: float | None = None
+
+    if lower.startswith("found "):
+        phase = "Found package manifest"
+        pct = 10.0
+    elif "downloading " in lower:
+        phase = "Downloading installer"
+        pct = 15.0
+    elif "verified installer hash" in lower or "verifying" in lower:
+        phase = "Verified installer hash"
+        pct = 85.0
+    elif "starting package install" in lower or "installing" in lower:
+        phase = "Installing package..."
+        pct = None  # Indeterminate during installer execution
+    elif "successfully installed" in lower:
+        phase = "Successfully installed"
+        pct = 100.0
+    elif "no applicable update" in lower or "no newer package" in lower:
+        phase = "Already up to date"
+        pct = 100.0
+
+    return WingetProgressUpdate(
+        phase=phase,
+        percent=pct,
+        is_noise=False,
+        clean_line=clean,
+    )
+

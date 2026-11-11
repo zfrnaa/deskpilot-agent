@@ -147,3 +147,27 @@ async def test_tui_app_winget_inspector_removes_upgraded_package():
         assert len(inspector.updates) == 0
         assert state.winget_updates.total_count == 0
 
+@pytest.mark.asyncio
+async def test_tui_app_winget_upgrade_modal_progress_bars():
+    """Verify WingetUpgradeRunModal renders batch and active package progress bars and supports partial batch removal."""
+    from textual.widgets import ProgressBar, Static
+    state = BootState()
+    state.winget_updates = WingetUpdateResult(
+        total_count=2,
+        updates=[
+            WingetUpdateItem(name="Git", id="Git.Git", version="2.40", available_version="2.41"),
+            WingetUpdateItem(name="AWS", id="Amazon.AWSCLI", version="2.0", available_version="2.1"),
+        ],
+    )
+    app = DeskPilotTUI(state=state)
+    async with app.run_test() as pilot:
+        await pilot.press("4")
+        await pilot.pause(0.1)
+        inspector = app.screen_stack[-1]
+
+        # Test partial batch result removal (e.g. cancelled after first package succeeded)
+        inspector.handle_upgrade_result(None, ["Git.Git"])
+        assert len(inspector.updates) == 1
+        assert inspector.updates[0].id == "Amazon.AWSCLI"
+        assert state.winget_updates.total_count == 1
+

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from deskpilot.boot_tasks.package_checker import (
+    parse_winget_progress_chunk,
     parse_winget_show_output,
     WingetPackageDetail,
     WingetUpdateItem,
@@ -459,4 +460,37 @@ def test_parse_winget_show_output_empty():
     assert detail.package_id == "Empty.Pkg"
     assert detail.release_notes == ""
     assert detail.release_notes_url == ""
+
+def test_parse_winget_progress_chunk_bytes_and_stages():
+    # 1. Byte download line
+    dl = parse_winget_progress_chunk("  ████████████░░░░░░  12.5 MB / 50.0 MB")
+    assert dl.is_noise is True
+    assert dl.phase == "Downloading installer"
+    assert dl.percent == 25.0
+    assert dl.downloaded_text == "12.5 MB / 50.0 MB"
+
+    # 2. Pure spinner frame
+    sp = parse_winget_progress_chunk("\r-\r")
+    assert sp.is_noise is True
+
+    # 3. Stage transitions
+    fnd = parse_winget_progress_chunk("Found Git [Git.Git] Version 2.45.0")
+    assert fnd.is_noise is False
+    assert fnd.phase == "Found package manifest"
+    assert fnd.percent == 10.0
+
+    ver = parse_winget_progress_chunk("Successfully verified installer hash")
+    assert ver.is_noise is False
+    assert ver.phase == "Verified installer hash"
+    assert ver.percent == 85.0
+
+    inst = parse_winget_progress_chunk("Starting package install...")
+    assert inst.is_noise is False
+    assert inst.phase == "Installing package..."
+    assert inst.percent is None  # Indeterminate while installer runs
+
+    done = parse_winget_progress_chunk("Successfully installed")
+    assert done.is_noise is False
+    assert done.phase == "Successfully installed"
+    assert done.percent == 100.0
 
