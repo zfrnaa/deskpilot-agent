@@ -30,6 +30,8 @@ class ScreenshotItem(BaseModel):
     is_synced: bool = False
     image_synced: bool = False
     deleted_locally: bool = False
+    target_path: Path | None = None
+    organized_locally: bool = False
 
     @model_validator(mode="after")
     def populate_filename(self) -> ScreenshotItem:
@@ -50,6 +52,10 @@ class ScreenshotAgentState(TypedDict, total=False):
     approved_cluster_keys: list[str]
     synced_count: int
     deleted_count: int
+    organized_count: int
+    organize_local: bool
+    category_folders: dict[str, str]
+    organization_approved: bool
     errors: list[str]
     auto_approve: bool
     delete_synced_local: bool
@@ -74,6 +80,8 @@ def create_initial_state(
     console_print: Any = None,
     reasoning_llm: Any = None,
     fallback_reasoning_llm: Any = None,
+    organize_local: bool = False,
+    category_folders: dict[str, str] | None = None,
 ) -> ScreenshotAgentState:
     """Create a fully initialized ScreenshotAgentState dictionary."""
     state: ScreenshotAgentState = {
@@ -84,9 +92,20 @@ def create_initial_state(
         "approved_cluster_keys": [],
         "synced_count": 0,
         "deleted_count": 0,
+        "organized_count": 0,
         "errors": [],
         "auto_approve": auto_approve,
         "delete_synced_local": delete_synced_local,
+        "organize_local": organize_local,
+        "category_folders": category_folders
+        if category_folders is not None
+        else {
+            "WORK_NOTES": "Work Notes",
+            "DUE_DILIGENCE": "Due Diligence",
+            "BRAINSTORM": "Brainstorm",
+            "NOTION_NOTE": "Work Notes",
+            "LOCAL_KEEP": "General",
+        },
     }
     if destinations is not None:
         state["destinations"] = destinations

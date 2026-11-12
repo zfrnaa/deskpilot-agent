@@ -894,8 +894,12 @@ async def execute_menu_action(
 
             synced = triage_res.get("synced_count", 0)
             deleted = triage_res.get("deleted_count", 0)
+            organized = triage_res.get("organized_count", 0)
             errors = triage_res.get("errors", [])
-            c.print(f"[bold green]Screenshot Triage complete:[/bold green] Synced: {synced}, Deleted: {deleted}")
+            c.print(
+                f"[bold green]Screenshot Triage complete:[/bold green] Synced: {synced}, "
+                f"Organized: {organized}, Deleted: {deleted}"
+            )
             if any("without passing to Notion" in str(err) for err in errors):
                 c.print("[yellow]Finished the task without passing to Notion.[/yellow]")
             if errors:

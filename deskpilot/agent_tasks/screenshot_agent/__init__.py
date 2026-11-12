@@ -4,6 +4,12 @@ from deskpilot.agent_tasks.screenshot_agent.graph import (
     build_screenshot_triage_graph,
     run_screenshot_triage,
 )
+from deskpilot.agent_tasks.screenshot_agent.organizer import (
+    execute_local_organization,
+    generate_semantic_filename,
+    plan_local_organization,
+    slugify_description,
+)
 from deskpilot.agent_tasks.screenshot_agent.state import (
     ScreenshotAgentState,
     ScreenshotItem,
@@ -30,6 +36,10 @@ __all__ = [
     "check_gemini_quota",
     "get_default_vision_llm",
     "get_ollama_vision_llm",
+    "slugify_description",
+    "generate_semantic_filename",
+    "plan_local_organization",
+    "execute_local_organization",
     "search_notion",
     "append_to_page",
     "create_database_page",

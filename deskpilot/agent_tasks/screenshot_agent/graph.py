@@ -19,6 +19,10 @@ from deskpilot.agent_tasks.screenshot_agent.notion_sync import (
     introspect_database_schema,
     sync_approved_items,
 )
+from deskpilot.agent_tasks.screenshot_agent.organizer import (
+    execute_local_organization,
+    plan_local_organization,
+)
 from deskpilot.agent_tasks.screenshot_agent.state import (
     ScreenshotAgentState,
     ScreenshotItem,
@@ -298,6 +302,67 @@ def cleanup_synced(
     }
 
 
+def organize_screenshots(
+    state: ScreenshotAgentState,
+    organize_local: bool = True,
+) -> dict[str, Any]:
+    """Organize remaining local screenshots into category subfolders with semantic names."""
+    items = state.get("items", [])
+    errors = list(state.get("errors", []))
+    should_organize = state.get("organize_local", organize_local)
+    s_dir = state.get("screenshots_dir")
+
+    # If organize_local is not explicitly enabled in state/graph, do not touch files
+    if not should_organize or not s_dir or not items:
+        return {"items": items, "organized_count": 0, "errors": errors}
+
+    # Plan local organization targets
+    category_folders = state.get("category_folders")
+    del_local = state.get("delete_synced_local", True)
+    items = plan_local_organization(
+        items=items,
+        screenshots_dir=s_dir,
+        category_folders=category_folders,
+        delete_synced_local=del_local,
+    )
+
+    # Check if there are any items to organize
+    eligible = [it for it in items if getattr(it, "target_path", None) is not None]
+    if not eligible:
+        return {"items": items, "organized_count": 0, "errors": errors}
+
+    # Check for approval / interactive confirmation
+    p_func = state.get("prompt_func")
+    c_print = state.get("console_print")
+    auto_approve = state.get("auto_approve", False)
+
+    approved = auto_approve
+    if not approved and p_func:
+        if c_print:
+            c_print("\n[bold cyan]Proposed Local Screenshot Organization Plan:[/bold cyan]")
+            for it in eligible:
+                src_name = it.path.name
+                rel_dst = it.target_path.relative_to(s_dir) if it.target_path.is_relative_to(s_dir) else it.target_path.name
+                c_print(f"  • {src_name} -> [green]{rel_dst}[/green]")
+        try:
+            resp = p_func("Proceed with moving and renaming these screenshots? [Y/n]: ").strip().lower()
+            approved = resp in ("", "y", "yes")
+        except Exception:
+            approved = False
+
+    if not approved:
+        if c_print:
+            c_print("[yellow]Local screenshot organization skipped by user.[/yellow]")
+        return {"items": items, "organized_count": 0, "errors": errors}
+
+    organized_count, org_errors = execute_local_organization(items)
+    return {
+        "items": items,
+        "organized_count": organized_count,
+        "errors": errors + org_errors,
+    }
+
+
 def build_screenshot_triage_graph(
     llm: Any = None,
     notion_client: Any = None,
@@ -305,6 +370,7 @@ def build_screenshot_triage_graph(
     database_id: str = "",
     destinations: ScreenshotDestinationsConfig | None = None,
     delete_synced_local: bool = True,
+    organize_local: bool = False,
     auto_approve: bool = False,
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
     reasoning_llm: Any = None,
@@ -349,12 +415,17 @@ def build_screenshot_triage_graph(
         del_flag = state.get("delete_synced_local", delete_synced_local)
         return cleanup_synced(state, delete_synced_local=del_flag)
 
+    def _organize(state: ScreenshotAgentState) -> dict[str, Any]:
+        org_flag = state.get("organize_local", organize_local)
+        return organize_screenshots(state, organize_local=org_flag)
+
     builder.add_node("scan_screenshots", _scan)
     builder.add_node("vision_triage", _triage)
     builder.add_node("cluster_items", _cluster)
     builder.add_node("human_review_node", _review)
     builder.add_node("notion_sync", _sync)
     builder.add_node("cleanup_synced", _clean)
+    builder.add_node("organize_screenshots", _organize)
 
     builder.set_entry_point("scan_screenshots")
     builder.add_edge("scan_screenshots", "vision_triage")
@@ -362,7 +433,8 @@ def build_screenshot_triage_graph(
     builder.add_edge("cluster_items", "human_review_node")
     builder.add_edge("human_review_node", "notion_sync")
     builder.add_edge("notion_sync", "cleanup_synced")
-    builder.add_edge("cleanup_synced", END)
+    builder.add_edge("cleanup_synced", "organize_screenshots")
+    builder.add_edge("organize_screenshots", END)
 
     return builder.compile(
         checkpointer=checkpointer,
@@ -412,6 +484,7 @@ async def run_screenshot_triage(
         database_id=settings.notion.screenshot_destinations.work_notes_database_id,
         destinations=settings.notion.screenshot_destinations,
         delete_synced_local=settings.screenshots.delete_synced_local,
+        organize_local=getattr(settings.screenshots, "organize_local", True),
         auto_approve=auto_approve,
         review_func=review_func,
         reasoning_llm=reasoning_llm,
@@ -441,6 +514,8 @@ async def run_screenshot_triage(
         console_print=console_print,
         reasoning_llm=reasoning_llm,
         fallback_reasoning_llm=fallback_reasoning_llm,
+        organize_local=getattr(settings.screenshots, "organize_local", True),
+        category_folders=getattr(settings.screenshots, "category_folders", None),
     )
 
     return await graph.ainvoke(

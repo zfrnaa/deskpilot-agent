@@ -130,6 +130,16 @@ class ScreenshotsConfig(BaseModel):
     directory: Path = Path("~/Pictures/Screenshots")
     delete_synced_local: bool = True
     max_images: int = 50
+    organize_local: bool = True
+    category_folders: dict[str, str] = Field(
+        default_factory=lambda: {
+            "WORK_NOTES": "Work Notes",
+            "DUE_DILIGENCE": "Due Diligence",
+            "BRAINSTORM": "Brainstorm",
+            "NOTION_NOTE": "Work Notes",
+            "LOCAL_KEEP": "General",
+        }
+    )
 
     def get_resolved_directory(self) -> Path:
         """Return resolved path to the screenshots folder."""
