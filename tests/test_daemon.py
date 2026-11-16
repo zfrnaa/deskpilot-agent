@@ -7,6 +7,7 @@ import pytest
 
 from deskpilot.config import Settings
 from deskpilot.daemon import (
+    count_eligible_downloads,
     count_eligible_screenshots,
     should_trigger_downloads_triage,
     record_downloads_triage_run,
@@ -27,6 +28,24 @@ def test_count_eligible_screenshots(tmp_path: Path):
     filenames = {p.name for p in res}
     assert "shot1.png" in filenames
     assert "shot2.jpg" in filenames
+
+
+def test_count_eligible_downloads(tmp_path: Path):
+    downloads_dir = tmp_path / "Downloads"
+    downloads_dir.mkdir()
+    assert count_eligible_downloads(downloads_dir) == []
+
+    (downloads_dir / "setup.exe").write_text("bin")
+    (downloads_dir / "archive.zip").write_text("zip")
+    (downloads_dir / ".hidden").write_text("hidden")
+    (downloads_dir / "SubDir").mkdir()
+
+    res = count_eligible_downloads(downloads_dir)
+    assert len(res) == 2
+    filenames = {p.name for p in res}
+    assert "setup.exe" in filenames
+    assert "archive.zip" in filenames
+    assert ".hidden" not in filenames
 
 
 def test_downloads_cadence_trigger(tmp_path: Path):

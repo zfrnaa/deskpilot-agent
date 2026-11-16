@@ -147,9 +147,17 @@ func checkThresholds() {
 	if store != nil {
 		trig, err := watcher.ShouldTriggerDownloads(store, cfg.Daemon.DownloadsCadenceDays)
 		if err == nil && trig {
-			title := "Downloads Hygiene Alert"
-			body := "5-day downloads hygiene cadence reached. Ready to organize files."
-			dispatchAlert(title, body, "deskpilot://open")
+			eligibleCount, errCount := watcher.CountEligibleDownloads(cfg.Downloads.Directory)
+			if errCount == nil && eligibleCount == 0 {
+				// Downloads folder is clean; auto-advance timestamp without nagging
+				_ = store.RecordTimestamp(db.DownloadsLastTriggerKey)
+			} else {
+				title := "Downloads Hygiene Alert"
+				body := fmt.Sprintf("%d-day downloads hygiene cadence reached (%d items found). Ready to organize files.", cfg.Daemon.DownloadsCadenceDays, eligibleCount)
+				dispatchAlert(title, body, "deskpilot://open")
+				// Advance cadence timestamp so it won't repeatedly alert until the next period
+				_ = store.RecordTimestamp(db.DownloadsLastTriggerKey)
+			}
 		}
 	}
 

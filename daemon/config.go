@@ -12,6 +12,9 @@ type Config struct {
 	Screenshots struct {
 		Directory string `yaml:"directory"`
 	} `yaml:"screenshots"`
+	Downloads struct {
+		Directory string `yaml:"directory"`
+	} `yaml:"downloads"`
 	Daemon struct {
 		Enabled              bool    `yaml:"enabled"`
 		PollIntervalSeconds  float64 `yaml:"poll_interval_seconds"`
@@ -77,6 +80,14 @@ func LoadConfig(projectRoot string) (*Config, error) {
 		userProfile := os.Getenv("USERPROFILE")
 		if userProfile != "" {
 			cfg.Screenshots.Directory = filepath.Join(userProfile, "Pictures", "Screenshots")
+		}
+	}
+
+	cfg.Downloads.Directory = expandHome(cfg.Downloads.Directory)
+	if cfg.Downloads.Directory == "" {
+		userProfile := os.Getenv("USERPROFILE")
+		if userProfile != "" {
+			cfg.Downloads.Directory = filepath.Join(userProfile, "Downloads")
 		}
 	}
 

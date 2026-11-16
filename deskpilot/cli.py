@@ -940,6 +940,17 @@ async def execute_menu_action(
             if state is not None:
                 state.set_finding("downloads_hygiene", dh_res)
 
+            # Record downloads triage timestamp in SQLite store so daemon cadence resets
+            if getattr(cfg, "storage", None) and cfg.storage.enabled:
+                try:
+                    from deskpilot.daemon import record_downloads_triage_run
+                    from deskpilot.storage.store import get_store
+
+                    db_store = get_store(cfg.get_resolved_storage_path())
+                    record_downloads_triage_run(db_store)
+                except Exception:
+                    pass
+
             freed = format_bytes(dh_res.get("total_bytes_freed", 0))
             moved = dh_res.get("total_files_moved", 0)
             errors = dh_res.get("errors", [])

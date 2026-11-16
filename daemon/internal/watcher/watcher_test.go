@@ -59,3 +59,22 @@ func TestShouldTriggerDownloads(t *testing.T) {
 		t.Fatalf("Expected true after 6 days, got trig=%v err=%v", trig, err)
 	}
 }
+
+func TestCountEligibleDownloads(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	count, err := CountEligibleDownloads(tmpDir)
+	if err != nil || count != 0 {
+		t.Fatalf("Expected 0 files in empty directory, got %d, err: %v", count, err)
+	}
+
+	os.WriteFile(filepath.Join(tmpDir, "file1.zip"), []byte("zip"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "installer.exe"), []byte("exe"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, ".hidden"), []byte("hidden"), 0644)
+	os.Mkdir(filepath.Join(tmpDir, "Archive"), 0755)
+
+	count, err = CountEligibleDownloads(tmpDir)
+	if err != nil || count != 2 {
+		t.Fatalf("Expected 2 eligible files, got %d, err: %v", count, err)
+	}
+}

@@ -94,6 +94,17 @@ def count_eligible_screenshots(screenshots_dir: Path) -> list[Path]:
     ]
 
 
+def count_eligible_downloads(downloads_dir: Path) -> list[Path]:
+    """Return list of unorganized top-level files in the downloads directory."""
+    if not downloads_dir.exists() or not downloads_dir.is_dir():
+        return []
+    return [
+        p
+        for p in downloads_dir.iterdir()
+        if p.is_file() and not p.name.startswith((".", "~"))
+    ]
+
+
 def should_trigger_downloads_triage(
     store: SQLiteStore,
     cadence_days: int = 5,
@@ -200,13 +211,16 @@ async def run_daemon_tick(
 
     # 3. Inspect downloads cadence
     if should_trigger_downloads_triage(store, cadence_days=downloads_cadence_days):
-        result.downloads_triggered = True
-        if send_notifications:
-            send_windows_toast(
-                title="DeskPilot Downloads Maintenance",
-                message=f"It's been {downloads_cadence_days} days since your last downloads triage. Run DeskPilot to organize recent files.",
-                action_command="deskpilot://open",
-            )
+        downloads_dir = settings.downloads.get_resolved_directory()
+        eligible_downloads = count_eligible_downloads(downloads_dir)
+        if len(eligible_downloads) > 0:
+            result.downloads_triggered = True
+            if send_notifications:
+                send_windows_toast(
+                    title="DeskPilot Downloads Maintenance",
+                    message=f"It's been {downloads_cadence_days} days since your last downloads triage ({len(eligible_downloads)} files found). Run DeskPilot to organize recent files.",
+                    action_command="deskpilot://open",
+                )
         record_downloads_triage_run(store)
 
     return result
