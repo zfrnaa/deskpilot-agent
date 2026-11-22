@@ -39,6 +39,8 @@ def prune_stale_checkpoints(db_path: Path, max_age_days: int = 14) -> int:
 
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     try:
         cur = conn.cursor()
         # Check if checkpoints table exists
@@ -146,6 +148,8 @@ def get_storage_stats(db_path: Path) -> dict[str, Any]:
 
     if db_path.exists():
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
         try:
             cur = conn.cursor()
 

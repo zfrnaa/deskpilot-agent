@@ -39,8 +39,19 @@ def test_format_boot_notification_populated_state():
 def test_format_boot_notification_empty_state():
     state = BootState()
     title, body = format_boot_notification(state)
-    assert "DeskPilot" in title
+    assert title == "DeskPilot Daily Briefing"
+    assert "morning" not in title.lower()
     assert "Boot sequence completed" in body
+
+
+def test_send_windows_toast_escapes_quotes_in_action_command():
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        success = send_windows_toast("Title", "Body", action_command="deskpilot://open?q='a'&b=\"c\"")
+        assert success is True
+        script = mock_run.call_args[0][0][-1]
+        assert "&apos;" in script
+        assert "&quot;" in script
 
 
 def test_send_windows_toast_invokes_powershell():

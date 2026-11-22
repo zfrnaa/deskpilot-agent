@@ -10,18 +10,7 @@ import (
 
 // SendWindowsToast sends a native Windows Toast notification using PowerShell.
 func SendWindowsToast(title, body, actionCommand string) error {
-	var escapedTitle, escapedBody string
-	xml.EscapeText(&escapedTitleBuffer{dst: &escapedTitle}, []byte(title))
-	xml.EscapeText(&escapedBodyBuffer{dst: &escapedBody}, []byte(body))
-
-	activation := ""
-	actionElem := ""
-	if actionCommand != "" {
-		activation = fmt.Sprintf(`launch="%s" activationType="protocol"`, actionCommand)
-		actionElem = fmt.Sprintf(`<actions><action activationType="protocol" arguments="%s" content="Open Dashboard"/></actions>`, actionCommand)
-	}
-
-	xmlPayload := fmt.Sprintf(`<toast %s><visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual>%s</toast>`, activation, escapedTitle, escapedBody, actionElem)
+	xmlPayload := buildToastXML(title, body, actionCommand)
 
 	// Escape single quotes for PowerShell string literal
 	psXML := strings.ReplaceAll(xmlPayload, "'", "''")
@@ -44,16 +33,23 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 	return cmd.Run()
 }
 
-type escapedTitleBuffer struct{ dst *string }
+func buildToastXML(title, body, actionCommand string) string {
+	escapedTitle := escapeXML(title)
+	escapedBody := escapeXML(body)
 
-func (b *escapedTitleBuffer) Write(p []byte) (n int, err error) {
-	*b.dst += string(p)
-	return len(p), nil
+	activation := ""
+	actionElem := ""
+	if actionCommand != "" {
+		escapedAction := escapeXML(actionCommand)
+		activation = fmt.Sprintf(`launch="%s" activationType="protocol"`, escapedAction)
+		actionElem = fmt.Sprintf(`<actions><action activationType="protocol" arguments="%s" content="Open Dashboard"/></actions>`, escapedAction)
+	}
+
+	return fmt.Sprintf(`<toast %s><visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual>%s</toast>`, activation, escapedTitle, escapedBody, actionElem)
 }
 
-type escapedBodyBuffer struct{ dst *string }
-
-func (b *escapedBodyBuffer) Write(p []byte) (n int, err error) {
-	*b.dst += string(p)
-	return len(p), nil
+func escapeXML(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }

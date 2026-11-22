@@ -36,15 +36,14 @@ func GetMemoryLoadPercent() int {
 	return int(stat.DwMemoryLoad)
 }
 
-// ShouldTriggerMemoryCleanup checks if periodic memory cleanup is due (interval or high RAM load).
-func ShouldTriggerMemoryCleanup(store *db.Store, intervalMinutes int, loadThresholdPercent int) (bool, error) {
-	// 1. High load check (e.g. >= 75%)
-	load := GetMemoryLoadPercent()
-	if load >= loadThresholdPercent && loadThresholdPercent > 0 {
-		return true, nil
-	}
+// HighMemoryCooldownSeconds is the minimum cooldown between high-RAM triggered cleanups (5 minutes).
+const HighMemoryCooldownSeconds = 300
 
-	// 2. Time cadence check
+// getMemoryLoadPercentFunc is a package-level hook for testing.
+var getMemoryLoadPercentFunc = GetMemoryLoadPercent
+
+// ShouldTriggerMemoryCleanup checks if periodic memory cleanup is due (interval or high RAM load with cooldown).
+func ShouldTriggerMemoryCleanup(store *db.Store, intervalMinutes int, loadThresholdPercent int) (bool, error) {
 	lastTs, err := store.GetLastTimestamp(db.MemoryCleanupLastTriggerKey)
 	if err != nil {
 		return false, err
@@ -53,7 +52,16 @@ func ShouldTriggerMemoryCleanup(store *db.Store, intervalMinutes int, loadThresh
 		return true, nil
 	}
 
-	secondsThreshold := float64(intervalMinutes * 60)
 	now := float64(time.Now().Unix())
-	return (now - lastTs) >= secondsThreshold, nil
+	elapsed := now - lastTs
+
+	// 1. High load check (e.g. >= 75%) gated by short cooldown to avoid spamming every poll
+	load := getMemoryLoadPercentFunc()
+	if loadThresholdPercent > 0 && load >= loadThresholdPercent {
+		return elapsed >= HighMemoryCooldownSeconds, nil
+	}
+
+	// 2. Time cadence check
+	secondsThreshold := float64(intervalMinutes * 60)
+	return elapsed >= secondsThreshold, nil
 }

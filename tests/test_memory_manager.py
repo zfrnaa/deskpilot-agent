@@ -101,3 +101,33 @@ def test_perform_periodic_memory_cleanup_executes_when_not_gaming():
         assert res.processes_skipped == 5
         assert res.standby_purged is True
         assert mock_standby.call_count == 1
+
+
+def test_enable_privilege_uses_win_dll_last_error_and_closes_handle():
+    import ctypes
+    from ctypes import wintypes
+    from unittest.mock import MagicMock, patch
+    from deskpilot.boot_tasks.memory_manager import enable_privilege
+
+    fake_advapi32 = MagicMock()
+    fake_kernel32 = MagicMock()
+    fake_kernel32.GetCurrentProcess.return_value = 0x1234
+    fake_advapi32.OpenProcessToken.return_value = 1
+    fake_advapi32.LookupPrivilegeValueW.return_value = 1
+    fake_advapi32.AdjustTokenPrivileges.return_value = 1
+
+    def _fake_windll(name, use_last_error=False):
+        assert use_last_error is True
+        return fake_advapi32 if name == "advapi32" else fake_kernel32
+
+    with (
+        patch("deskpilot.boot_tasks.memory_manager.os.name", "nt"),
+        patch("deskpilot.boot_tasks.memory_manager.ctypes.WinDLL", side_effect=_fake_windll),
+        patch("deskpilot.boot_tasks.memory_manager.ctypes.set_last_error"),
+        patch("deskpilot.boot_tasks.memory_manager.ctypes.get_last_error", return_value=0),
+    ):
+        assert enable_privilege("SeIncreaseQuotaPrivilege") is True
+        assert fake_kernel32.CloseHandle.restype == wintypes.BOOL
+        assert fake_advapi32.LookupPrivilegeValueW.restype == wintypes.BOOL
+        assert fake_advapi32.AdjustTokenPrivileges.restype == wintypes.BOOL
+        fake_kernel32.CloseHandle.assert_called_once()

@@ -10,19 +10,14 @@ func TestXMLFormatting(t *testing.T) {
 	body := "12 screenshots > 10 threshold"
 	action := "deskpilot://open"
 
-	// Validate escaping
-	var escapedTitle, escapedBody string
-	bTitle := &escapedTitleBuffer{dst: &escapedTitle}
-	bTitle.Write([]byte(title))
-
-	bBody := &escapedBodyBuffer{dst: &escapedBody}
-	bBody.Write([]byte(body))
-
-	if !strings.Contains(escapedTitle, "DeskPilot Alert &amp; Triage") {
-		// If standard write
-		if escapedTitle != title {
-			t.Fatalf("Unexpected title: %s", escapedTitle)
-		}
+	xmlStr := buildToastXML(title, body, action)
+	if !strings.Contains(xmlStr, "DeskPilot Alert &amp; Triage") {
+		t.Fatalf("Expected escaped title in XML, got: %s", xmlStr)
 	}
-	_ = action
+	if !strings.Contains(xmlStr, "12 screenshots &gt; 10 threshold") {
+		t.Fatalf("Expected escaped body in XML, got: %s", xmlStr)
+	}
+	if !strings.Contains(xmlStr, `launch="deskpilot://open"`) {
+		t.Fatalf("Expected launch attribute in XML, got: %s", xmlStr)
+	}
 }

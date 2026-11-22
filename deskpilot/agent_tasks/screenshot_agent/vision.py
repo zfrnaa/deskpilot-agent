@@ -398,7 +398,7 @@ def classify_screenshot(
 
                 if is_gemini_llm and is_quota:
                     # Attempt automatic fallback to Ollama MiniCPM-V
-                    ollama_llm = get_default_vision_llm(gemini_api_key="", ollama_model="minicpm-v")
+                    ollama_llm = get_ollama_vision_llm(ollama_model="minicpm-v")
                     if ollama_llm is not None:
                         try:
                             response = ollama_llm.invoke([message])

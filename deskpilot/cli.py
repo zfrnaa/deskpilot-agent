@@ -646,9 +646,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Purge Windows standby list and optimize physical RAM",
     )
     parser.add_argument(
+        "--periodic",
+        action="store_true",
+        help="When used with --clear-ram, skip cleanup if an active game process is detected",
+    )
+    parser.add_argument(
         "--daemon",
         action="store_true",
-        help="Run autonomous background watcher daemon (screenshot threshold & downloads cadence)",
+        help="Run background watcher daemon (screenshot threshold & downloads cadence)",
     )
     parsed, _ = parser.parse_known_args(args)
     return parsed
@@ -1149,7 +1154,7 @@ async def execute_menu_action(
         except Exception as e:
             c.print(f"[red]Read-Later Digest failed: {escape_markup(str(e))}[/red]")
         return True
-    elif normalized_choice in ("6", "7"):
+    elif normalized_choice == "6":
         from deskpilot.ui.pipeline import render_pipeline
         unicode_ok = ui_theme.supports_glyphs(getattr(c, "file", None))
         c.print(
@@ -1190,7 +1195,7 @@ async def execute_menu_action(
             c.print(f"[red]SystemCare Deep Clean failed: {escape_markup(str(e))}[/red]")
         return True
     else:
-        c.print(f"[bold red]Invalid option '{escape_markup(str(choice))}'. Please select an option between 0 and 7.[/bold red]")
+        c.print(f"[bold red]Invalid option '{escape_markup(str(choice))}'. Please select an option between 0 and 6.[/bold red]")
         return True
 
 
@@ -1206,6 +1211,7 @@ async def main_async(
     storage_status: bool = False,
     use_tui: bool = False,
     clear_ram: bool = False,
+    periodic: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -1225,11 +1231,19 @@ async def main_async(
         before_mem = get_system_memory_status()
         c.print(f"[bold cyan]Physical Memory Before:[/bold cyan] {before_mem.used_gb:.1f} GB / {before_mem.total_gb:.1f} GB ({before_mem.memory_load_percent}% load)")
         c.print("[cyan]Purging Windows Standby List & Trimming Inactive Working Sets...[/cyan]")
-        purge_res = perform_game_standby_purge()
-        clean_res = perform_periodic_memory_cleanup(force_even_if_gaming=True)
+        game_procs = settings.memory.game_processes if getattr(settings, "memory", None) else None
+        purge_res = None
+        if not periodic:
+            purge_res = perform_game_standby_purge(game_procs)
+        clean_res = perform_periodic_memory_cleanup(
+            game_procs, force_even_if_gaming=not periodic
+        )
         after_mem = get_system_memory_status()
+        if periodic and clean_res.game_running:
+            c.print(f"[yellow]Skipped periodic memory optimization: game '{clean_res.active_game}' is actively running.[/yellow]")
+            return 0
         c.print(f"[bold green]Memory Optimization Complete:[/bold green] Available: [bold cyan]{after_mem.available_gb:.1f} GB[/bold cyan] (Load: {after_mem.memory_load_percent}%)")
-        if purge_res.standby_purged:
+        if (purge_res and purge_res.standby_purged) or clean_res.standby_purged:
             c.print("  [green]✓ Standby List purged[/green]")
         if clean_res.modified_flushed:
             c.print("  [green]✓ Modified Page List committed to disk[/green]")
@@ -1390,7 +1404,7 @@ def main(args: list[str] | None = None) -> None:
                 )
             )
         elif parsed.clear_ram:
-            sys.exit(asyncio.run(main_async(clear_ram=True)))
+            sys.exit(asyncio.run(main_async(clear_ram=True, periodic=parsed.periodic)))
         elif parsed.storage_status:
             sys.exit(asyncio.run(main_async(storage_status=True)))
         elif parsed.check_tracing:

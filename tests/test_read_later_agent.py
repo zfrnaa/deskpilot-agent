@@ -523,3 +523,104 @@ def test_lazy_loading_of_langgraph_and_read_later_agent():
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, f"Lazy loading check failed: {result.stderr}"
+
+
+@pytest.mark.asyncio
+async def test_build_read_later_graph_uses_bound_database_id():
+    """build_read_later_graph(database_id=...) must inject database_id when state omits it."""
+    mock_client = MagicMock()
+    mock_client.databases.query.return_value = {
+        "results": [
+            {
+                "id": "p-bound",
+                "properties": {
+                    "Title": {"type": "title", "title": [{"plain_text": "Bound DB Item"}]},
+                    "Status": {"type": "status", "status": {"name": "To Be Read"}},
+                },
+            }
+        ]
+    }
+    graph = build_read_later_graph(client=mock_client, database_id="db-bound-123")
+    final_state = await graph.ainvoke({"unread_items": [], "errors": []})
+    assert len(final_state["unread_items"]) == 1
+    assert final_state["unread_items"][0].title == "Bound DB Item"
+
+
+@pytest.mark.asyncio
+async def test_read_later_pagination_query_and_markdown():
+    """query_unread_items and fetch_page_markdown must follow has_more / next_cursor."""
+    from deskpilot.agent_tasks.read_later_agent.notion_reader import fetch_page_markdown
+
+    mock_client = MagicMock()
+    mock_client.databases.query.side_effect = [
+        {
+            "results": [
+                {
+                    "id": "p1",
+                    "properties": {
+                        "Title": {"type": "title", "title": [{"plain_text": "Page 1"}]},
+                        "Status": {"type": "status", "status": {"name": "To Be Read"}},
+                    },
+                }
+            ],
+            "has_more": True,
+            "next_cursor": "cur-2",
+        },
+        {
+            "results": [
+                {
+                    "id": "p2",
+                    "properties": {
+                        "Title": {"type": "title", "title": [{"plain_text": "Page 2"}]},
+                        "Status": {"type": "status", "status": {"name": "To Be Read"}},
+                    },
+                }
+            ],
+            "has_more": False,
+            "next_cursor": None,
+        },
+    ]
+
+    items = await query_unread_items(database_id="db-1", client=mock_client)
+    assert [i.page_id for i in items] == ["p1", "p2"]
+    assert mock_client.databases.query.call_count == 2
+
+    mock_client.blocks.children.list.side_effect = [
+        {
+            "results": [{"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Part 1"}]}}],
+            "has_more": True,
+            "next_cursor": "blk-2",
+        },
+        {
+            "results": [{"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Part 2"}]}}],
+            "has_more": False,
+            "next_cursor": None,
+        },
+    ]
+    md = await fetch_page_markdown("p1", client=mock_client)
+    assert "Part 1" in md and "Part 2" in md
+    assert mock_client.blocks.children.list.call_count == 2
+
+
+def test_parse_notion_page_none_status_and_select_name():
+    """parse_notion_page must not raise ValidationError when status/select name is None."""
+    page_status_none = {
+        "id": "p-none-status",
+        "properties": {
+            "Title": {"type": "title", "title": [{"plain_text": "Null Status"}]},
+            "Status": {"type": "status", "status": {"name": None}},
+        },
+    }
+    item1 = parse_notion_page(page_status_none)
+    assert item1.status == "To Be Read"
+
+    page_select_none = {
+        "id": "p-none-select",
+        "properties": {
+            "Title": {"type": "title", "title": [{"plain_text": "Null Select"}]},
+            "Status": {"type": "select", "select": {"name": None}},
+        },
+    }
+    item2 = parse_notion_page(page_select_none)
+    assert item2.status == "To Be Read"
+

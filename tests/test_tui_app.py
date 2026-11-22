@@ -171,3 +171,29 @@ async def test_tui_app_winget_upgrade_modal_progress_bars():
         assert inspector.updates[0].id == "Amazon.AWSCLI"
         assert state.winget_updates.total_count == 1
 
+
+
+def test_modal_escape_stops_event_propagation():
+    from unittest.mock import MagicMock
+    from deskpilot.ui.tui_app import WingetInspectorModal, WingetUpgradeRunModal
+
+    inspector = WingetInspectorModal(updates=[])
+    inspector.dismiss = MagicMock()
+    ev1 = MagicMock(key="escape")
+    inspector.on_key(ev1)
+    ev1.stop.assert_called_once()
+    inspector.dismiss.assert_called_once_with(None)
+
+    runner = WingetUpgradeRunModal(packages=[])
+    runner.dismiss = MagicMock()
+    runner._is_running = True
+    ev2 = MagicMock(key="escape")
+    runner.on_key(ev2)
+    ev2.stop.assert_called_once()
+    runner.dismiss.assert_not_called()
+
+    runner._is_running = False
+    ev3 = MagicMock(key="escape")
+    runner.on_key(ev3)
+    ev3.stop.assert_called_once()
+    runner.dismiss.assert_called_once()

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -18,6 +19,7 @@ const (
 	DownloadsLastTriggerKey      = "downloads_last_triage_ts"
 	MonthlyHygieneLastTriggerKey = "monthly_hygiene_last_run_ts"
 	MemoryCleanupLastTriggerKey  = "memory_cleanup_last_run_ts"
+	ScreenshotsLastAlertKey      = "screenshots_last_alert_ts"
 	GamePreviousActiveKey        = "game_previous_active_name"
 )
 
@@ -26,13 +28,26 @@ type Store struct {
 	db *sql.DB
 }
 
+func buildSQLiteDSN(dbPath string) string {
+	if dbPath == ":memory:" {
+		return ":memory:?_pragma=busy_timeout(5000)"
+	}
+	slashed := filepath.ToSlash(dbPath)
+	escaped := strings.ReplaceAll(slashed, "%", "%25")
+	escaped = strings.ReplaceAll(escaped, "?", "%3F")
+	escaped = strings.ReplaceAll(escaped, "#", "%23")
+	return fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", escaped)
+}
+
 // OpenStore opens or creates the SQLite store at the given database path.
 func OpenStore(dbPath string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create db directory: %w", err)
+	if dbPath != ":memory:" {
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+			return nil, fmt.Errorf("failed to create db directory: %w", err)
+		}
 	}
 
-	dsn := fmt.Sprintf("%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", dbPath)
+	dsn := buildSQLiteDSN(dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite db: %w", err)

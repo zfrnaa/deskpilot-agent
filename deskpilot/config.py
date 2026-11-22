@@ -262,12 +262,13 @@ class NewsConfig(BaseModel):
 
 
 class DaemonConfig(BaseModel):
-    """Configuration for autonomous watcher daemon."""
+    """Configuration for DeskPilot Daemon watcher."""
 
     enabled: bool = True
-    poll_interval_seconds: int = 300
+    poll_interval_seconds: int = 60
     screenshot_threshold: int = 10
     downloads_cadence_days: int = 5
+    notification_style: str = "bento"
 
 
 

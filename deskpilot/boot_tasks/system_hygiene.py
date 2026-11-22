@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
 import sqlite3
@@ -223,14 +224,13 @@ def _clean_antigravity_orphans_sync(
         return result
 
     try:
-        conn = sqlite3.connect(db_path)
-        active_ids = {
-            row[0]
-            for row in conn.cursor()
-            .execute("SELECT conversation_id FROM conversation_summaries")
-            .fetchall()
-        }
-        conn.close()
+        with contextlib.closing(sqlite3.connect(db_path)) as conn:
+            active_ids = {
+                row[0]
+                for row in conn.cursor()
+                .execute("SELECT conversation_id FROM conversation_summaries")
+                .fetchall()
+            }
     except Exception as e:
         result.errors.append(f"Failed to query conversation_summaries.db: {e}")
         return result
@@ -261,9 +261,10 @@ def _clean_antigravity_orphans_sync(
                         result.dirs_removed += 1
                     else:
                         shutil.rmtree(item, ignore_errors=True)
-                        result.bytes_freed += dir_bytes
-                        result.files_removed += dir_files
-                        result.dirs_removed += 1
+                        if not item.exists():
+                            result.bytes_freed += dir_bytes
+                            result.files_removed += dir_files
+                            result.dirs_removed += 1
                 except Exception as err:
                     result.errors.append(f"Failed to prune orphaned brain {item.name}: {err}")
 
@@ -391,8 +392,6 @@ def _clean_privacy_sweep_sync(
 
     privacy_dirs = [
         roaming / "Microsoft" / "Windows" / "Recent",
-        roaming / "Microsoft" / "Windows" / "Recent" / "AutomaticDestinations",
-        roaming / "Microsoft" / "Windows" / "Recent" / "CustomDestinations",
         roaming / "Microsoft" / "Office" / "Recent",
         local / "Microsoft" / "Windows" / "WER" / "ReportArchive",
         local / "Microsoft" / "Windows" / "WER" / "ReportQueue",

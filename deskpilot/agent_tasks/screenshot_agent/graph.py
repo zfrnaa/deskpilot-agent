@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -56,6 +57,8 @@ def scan_screenshots(state: ScreenshotAgentState) -> dict[str, Any]:
     image_files: list[Path] = []
     try:
         for f in path.iterdir():
+            if f.is_symlink() or (hasattr(f, "is_junction") and f.is_junction()):
+                continue
             if f.is_file() and f.suffix.lower() in valid_extensions:
                 image_files.append(f)
     except Exception as e:
@@ -305,6 +308,8 @@ def cleanup_synced(
 def organize_screenshots(
     state: ScreenshotAgentState,
     organize_local: bool = True,
+    prompt_func: Any = None,
+    console_print: Any = None,
 ) -> dict[str, Any]:
     """Organize remaining local screenshots into category subfolders with semantic names."""
     items = state.get("items", [])
@@ -332,8 +337,8 @@ def organize_screenshots(
         return {"items": items, "organized_count": 0, "errors": errors}
 
     # Check for approval / interactive confirmation
-    p_func = state.get("prompt_func")
-    c_print = state.get("console_print")
+    p_func = state.get("prompt_func", prompt_func)
+    c_print = state.get("console_print", console_print)
     auto_approve = state.get("auto_approve", False)
 
     approved = auto_approve
@@ -373,6 +378,8 @@ def build_screenshot_triage_graph(
     organize_local: bool = False,
     auto_approve: bool = False,
     review_func: Callable[[dict[str, list[ScreenshotItem]]], list[str]] | None = None,
+    prompt_func: Any = None,
+    console_print: Any = None,
     reasoning_llm: Any = None,
     fallback_reasoning_llm: Any = None,
     checkpointer: Any = None,
@@ -405,6 +412,8 @@ def build_screenshot_triage_graph(
             parent_page_id=p_id,
             database_id=db_id,
             destinations=dests,
+            prompt_func=prompt_func,
+            console_print=console_print,
             llm=llm,
             reasoning_llm=reasoning_llm,
             fallback_reasoning_llm=fallback_reasoning_llm,
@@ -417,7 +426,12 @@ def build_screenshot_triage_graph(
 
     def _organize(state: ScreenshotAgentState) -> dict[str, Any]:
         org_flag = state.get("organize_local", organize_local)
-        return organize_screenshots(state, organize_local=org_flag)
+        return organize_screenshots(
+            state,
+            organize_local=org_flag,
+            prompt_func=prompt_func,
+            console_print=console_print,
+        )
 
     builder.add_node("scan_screenshots", _scan)
     builder.add_node("vision_triage", _triage)
@@ -455,6 +469,7 @@ async def run_screenshot_triage(
     fallback_reasoning_llm: Any = None,
     checkpointer: Any = None,
     store: Any = None,
+    thread_id: str | None = None,
 ) -> ScreenshotAgentState:
     """High-level entrypoint to execute screenshot triage agent using configured settings."""
     if store is None:
@@ -487,6 +502,8 @@ async def run_screenshot_triage(
         organize_local=getattr(settings.screenshots, "organize_local", True),
         auto_approve=auto_approve,
         review_func=review_func,
+        prompt_func=prompt_func,
+        console_print=console_print,
         reasoning_llm=reasoning_llm,
         fallback_reasoning_llm=fallback_reasoning_llm,
         checkpointer=checkpointer,
@@ -503,31 +520,40 @@ async def run_screenshot_triage(
             except Exception as e:
                 logger.debug("Failed to introspect database schema for tag options: %s", e)
 
-    initial_state = create_initial_state(
-        screenshots_dir=settings.screenshots.get_resolved_directory(),
-        max_images=settings.screenshots.max_images,
-        auto_approve=auto_approve,
-        delete_synced_local=settings.screenshots.delete_synced_local,
-        destinations=settings.notion.screenshot_destinations,
-        tag_options=tag_options,
-        prompt_func=prompt_func,
-        console_print=console_print,
-        reasoning_llm=reasoning_llm,
-        fallback_reasoning_llm=fallback_reasoning_llm,
-        organize_local=getattr(settings.screenshots, "organize_local", True),
-        category_folders=getattr(settings.screenshots, "category_folders", None),
-    )
+    state_kwargs: dict[str, Any] = {
+        "screenshots_dir": settings.screenshots.get_resolved_directory(),
+        "max_images": settings.screenshots.max_images,
+        "auto_approve": auto_approve,
+        "delete_synced_local": settings.screenshots.delete_synced_local,
+        "destinations": settings.notion.screenshot_destinations,
+        "tag_options": tag_options,
+        "organize_local": getattr(settings.screenshots, "organize_local", True),
+        "category_folders": getattr(settings.screenshots, "category_folders", None),
+    }
+    # Omit non-serializable objects from state when a checkpointer is active;
+    # they are already bound in build_screenshot_triage_graph closures.
+    if checkpointer is None:
+        state_kwargs["prompt_func"] = prompt_func
+        state_kwargs["console_print"] = console_print
+        state_kwargs["reasoning_llm"] = reasoning_llm
+        state_kwargs["fallback_reasoning_llm"] = fallback_reasoning_llm
+
+    initial_state = create_initial_state(**state_kwargs)
+
+    run_config: dict[str, Any] = {
+        "run_name": "ScreenshotTriageAgent",
+        "tags": ["agent:screenshot_triage", f"model:{settings.gemini_model}"],
+        "metadata": {
+            "auto_approve": auto_approve,
+            "max_images": settings.screenshots.max_images,
+            "delete_synced_local": settings.screenshots.delete_synced_local,
+        },
+    }
+    if checkpointer is not None or thread_id is not None:
+        run_config["configurable"] = {"thread_id": thread_id or str(uuid.uuid4())}
 
     return await graph.ainvoke(
         initial_state,
-        config={
-            "run_name": "ScreenshotTriageAgent",
-            "tags": ["agent:screenshot_triage", f"model:{settings.gemini_model}"],
-            "metadata": {
-                "auto_approve": auto_approve,
-                "max_images": settings.screenshots.max_images,
-                "delete_synced_local": settings.screenshots.delete_synced_local,
-            },
-        },
+        config=run_config,
     )
 

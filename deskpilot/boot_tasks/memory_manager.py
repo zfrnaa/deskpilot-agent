@@ -112,31 +112,48 @@ def enable_privilege(privilege_name: str) -> bool:
         return False
 
     try:
-        advapi32 = ctypes.windll.advapi32
-        kernel32 = ctypes.windll.kernel32
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
+        kernel32.GetCurrentProcess.argtypes = []
         kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
         advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
         advapi32.OpenProcessToken.restype = wintypes.BOOL
+        advapi32.LookupPrivilegeValueW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.POINTER(LUID)]
+        advapi32.LookupPrivilegeValueW.restype = wintypes.BOOL
+        advapi32.AdjustTokenPrivileges.argtypes = [
+            wintypes.HANDLE,
+            wintypes.BOOL,
+            ctypes.POINTER(TOKEN_PRIVILEGES),
+            wintypes.DWORD,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        advapi32.AdjustTokenPrivileges.restype = wintypes.BOOL
 
         h_token = wintypes.HANDLE()
         if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, ctypes.byref(h_token)):
             return False
 
-        luid = LUID()
-        if not advapi32.LookupPrivilegeValueW(None, privilege_name, ctypes.byref(luid)):
+        try:
+            luid = LUID()
+            if not advapi32.LookupPrivilegeValueW(None, privilege_name, ctypes.byref(luid)):
+                return False
+
+            tp = TOKEN_PRIVILEGES()
+            tp.PrivilegeCount = 1
+            tp.Privileges[0].Luid = luid
+            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
+
+            ctypes.set_last_error(0)
+            ok = advapi32.AdjustTokenPrivileges(h_token, False, ctypes.byref(tp), ctypes.sizeof(tp), None, None)
+            err = ctypes.get_last_error()
+            return bool(ok) and err == 0
+        finally:
             kernel32.CloseHandle(h_token)
-            return False
-
-        tp = TOKEN_PRIVILEGES()
-        tp.PrivilegeCount = 1
-        tp.Privileges[0].Luid = luid
-        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
-
-        advapi32.AdjustTokenPrivileges(h_token, False, ctypes.byref(tp), ctypes.sizeof(tp), None, None)
-        err = kernel32.GetLastError()
-        kernel32.CloseHandle(h_token)
-        return err == 0
     except Exception:
         return False
 
@@ -147,9 +164,12 @@ def get_system_memory_status() -> MemoryStatus:
         return MemoryStatus()
 
     try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(MEMORYSTATUSEX)]
+        kernel32.GlobalMemoryStatusEx.restype = wintypes.BOOL
         stat = MEMORYSTATUSEX()
         stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+        if kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
             total = int(stat.ullTotalPhys)
             avail = int(stat.ullAvailPhys)
             used = max(0, total - avail)
@@ -171,8 +191,18 @@ def get_running_process_names() -> set[str]:
 
     names: set[str] = set()
     kernel32 = ctypes.windll.kernel32
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+    kernel32.Process32First.restype = wintypes.BOOL
+    kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+    kernel32.Process32Next.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    invalid_handle = wintypes.HANDLE(-1).value
     h_snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if h_snapshot == -1 or not h_snapshot:
+    if h_snapshot in (invalid_handle, -1) or not h_snapshot:
         return names
 
     pe = PROCESSENTRY32()
@@ -316,9 +346,18 @@ def trim_user_working_sets(skip_self: bool = True) -> tuple[int, int]:
     psapi.EmptyWorkingSet.restype = wintypes.BOOL
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+    kernel32.Process32First.restype = wintypes.BOOL
+    kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+    kernel32.Process32Next.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
 
+    invalid_handle = wintypes.HANDLE(-1).value
     h_snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if h_snapshot == -1 or not h_snapshot:
+    if h_snapshot in (invalid_handle, -1) or not h_snapshot:
         return 0, 0
 
     pe = PROCESSENTRY32()

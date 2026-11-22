@@ -183,7 +183,10 @@ def build_read_later_graph(
 
     async def _fetch(state: ReadLaterAgentState) -> dict[str, Any]:
         cl = state.get("client") or client
-        return await fetch_unread_items_node(state, client=cl)
+        state_copy = dict(state)
+        if database_id and not state_copy.get("database_id"):
+            state_copy["database_id"] = database_id
+        return await fetch_unread_items_node(state_copy, client=cl)
 
     def _recommend(state: ReadLaterAgentState) -> dict[str, Any]:
         return select_daily_recommendation(state)

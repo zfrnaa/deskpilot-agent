@@ -1,4 +1,4 @@
-"""Background autonomous watcher daemon for DeskPilot."""
+"""Background watcher daemon for DeskPilot."""
 
 from __future__ import annotations
 
@@ -24,7 +24,11 @@ DAEMON_NAMESPACE = ("daemon", "cadence")
 DOWNLOADS_LAST_TRIGGER_KEY = "downloads_last_triage_ts"
 MONTHLY_HYGIENE_LAST_TRIGGER_KEY = "monthly_hygiene_last_run_ts"
 MEMORY_CLEANUP_LAST_TRIGGER_KEY = "memory_cleanup_last_run_ts"
+SCREENSHOTS_LAST_ALERT_KEY = "screenshots_last_alert_ts"
 GAME_PREVIOUS_ACTIVE_KEY = "game_previous_active_name"
+
+HIGH_MEMORY_COOLDOWN_SECONDS = 300
+DEFAULT_SCREENSHOT_ALERT_COOLDOWN_SECONDS = 3600
 
 
 def should_trigger_monthly_hygiene(
@@ -56,21 +60,26 @@ def should_trigger_periodic_memory_clean(
     cadence_minutes: int = 30,
     memory_load_threshold: int = 75,
 ) -> bool:
-    """Check if periodic memory cleanup is due (by time or high memory load)."""
-    # 1. High memory load threshold check
-    mem_stat = get_system_memory_status()
-    if mem_stat.memory_load_percent >= memory_load_threshold:
-        return True
-
-    # 2. Time cadence check
+    """Check if periodic memory cleanup is due (by time or high memory load with cooldown)."""
     item = store.get(DAEMON_NAMESPACE, MEMORY_CLEANUP_LAST_TRIGGER_KEY)
-    now_ts = time.time()
     if item is None:
         return True
 
+    now_ts = time.time()
     last_ts = item.value.get("timestamp", 0)
+    if last_ts <= 0:
+        return True
+
+    elapsed = now_ts - last_ts
+
+    # 1. High memory load threshold check (gated by short cooldown)
+    mem_stat = get_system_memory_status()
+    if memory_load_threshold > 0 and mem_stat.memory_load_percent >= memory_load_threshold:
+        return elapsed >= HIGH_MEMORY_COOLDOWN_SECONDS
+
+    # 2. Time cadence check
     seconds_threshold = cadence_minutes * 60
-    return (now_ts - last_ts) >= seconds_threshold
+    return elapsed >= seconds_threshold
 
 
 def record_memory_cleanup_run(store: SQLiteStore) -> None:
@@ -90,8 +99,33 @@ def count_eligible_screenshots(screenshots_dir: Path) -> list[Path]:
     return [
         p
         for p in screenshots_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in valid_exts
+        if p.is_file() and not p.name.startswith((".", "~")) and p.suffix.lower() in valid_exts
     ]
+
+
+def should_trigger_screenshot_alert(
+    store: SQLiteStore,
+    cooldown_seconds: int = DEFAULT_SCREENSHOT_ALERT_COOLDOWN_SECONDS,
+) -> bool:
+    """Check if the screenshot threshold alert cooldown has elapsed."""
+    item = store.get(DAEMON_NAMESPACE, SCREENSHOTS_LAST_ALERT_KEY)
+    if item is None:
+        return True
+
+    last_ts = item.value.get("timestamp", 0)
+    if last_ts <= 0:
+        return True
+
+    return (time.time() - last_ts) >= cooldown_seconds
+
+
+def record_screenshot_alert(store: SQLiteStore) -> None:
+    """Record timestamp of the last dispatched screenshot threshold alert."""
+    store.put(
+        DAEMON_NAMESPACE,
+        SCREENSHOTS_LAST_ALERT_KEY,
+        {"timestamp": time.time(), "recorded_at": datetime.now(timezone.utc).isoformat()},
+    )
 
 
 def count_eligible_downloads(downloads_dir: Path) -> list[Path]:
@@ -200,7 +234,7 @@ async def run_daemon_tick(
     eligible_screens = count_eligible_screenshots(screenshots_dir)
     result.screenshots_count = len(eligible_screens)
 
-    if result.screenshots_count >= screenshot_threshold:
+    if result.screenshots_count >= screenshot_threshold and should_trigger_screenshot_alert(store):
         result.screenshot_triggered = True
         if send_notifications:
             send_windows_toast(
@@ -208,6 +242,7 @@ async def run_daemon_tick(
                 message=f"Accumulated {result.screenshots_count} screenshots. Run DeskPilot triage to organize them into Notion/archive.",
                 action_command="deskpilot://open",
             )
+        record_screenshot_alert(store)
 
     # 3. Inspect downloads cadence
     if should_trigger_downloads_triage(store, cadence_days=downloads_cadence_days):
@@ -229,7 +264,7 @@ async def run_daemon_tick(
 async def run_daemon_loop(
     settings: Settings,
     store: SQLiteStore,
-    poll_interval_seconds: int = 300,
+    poll_interval_seconds: int = 60,
     screenshot_threshold: int = 10,
     downloads_cadence_days: int = 5,
     stop_event: asyncio.Event | None = None,

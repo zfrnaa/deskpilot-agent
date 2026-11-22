@@ -219,3 +219,21 @@ def test_no_utf8_bom_in_bookmark_files():
         if py_file.exists():
             raw_bytes = py_file.read_bytes()
             assert not raw_bytes.startswith(b"\xef\xbb\xbf"), f"BOM found in {py_file}"
+
+
+def test_audit_places_db_closes_connection_on_query_exception(tmp_path):
+    from unittest.mock import MagicMock, patch
+    from deskpilot.boot_tasks.bookmarks import _audit_places_db_sync
+
+    db_file = tmp_path / "places.sqlite"
+    db_file.write_bytes(b"")
+
+    fake_conn = MagicMock()
+    fake_conn.cursor.return_value.execute.side_effect = RuntimeError("query failed")
+
+    with patch("deskpilot.boot_tasks.bookmarks.sqlite3.connect", return_value=fake_conn):
+        res = _audit_places_db_sync(db_file)
+
+    assert res.error is not None
+    assert "query failed" in res.error
+    fake_conn.close.assert_called_once()

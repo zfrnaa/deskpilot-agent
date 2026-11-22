@@ -132,44 +132,80 @@ def test_speak_in_background(mock_thread):
 
 def test_ensure_model_files_verifies_sha256_and_rejects_tampered_download(tmp_path):
     import hashlib
+    import io
     import pytest
     from deskpilot.voice import ensure_model_files
 
+    nested = tmp_path / "nested" / "models"
     cfg = VoiceConfig(
         enabled=True,
         cache_dir=str(tmp_path),
-        model_path=str(tmp_path / "kokoro-v1.0.onnx"),
-        voices_path=str(tmp_path / "voices-v1.0.bin"),
+        model_path=str(nested / "kokoro-v1.0.onnx"),
+        voices_path=str(nested / "voices-v1.0.bin"),
     )
 
-    def _fake_urlretrieve(url, dest):
-        dest.write_bytes(b"tampered-payload")
-        return dest, None
+    timeouts: list[int | None] = []
+
+    def _fake_urlopen_tampered(url, timeout=None):
+        timeouts.append(timeout)
+        return io.BytesIO(b"tampered-payload")
 
     with (
         patch("deskpilot.voice.MIN_MODEL_SIZE", 5),
-        patch("deskpilot.voice.urllib.request.urlretrieve", side_effect=_fake_urlretrieve),
+        patch("deskpilot.voice.urllib.request.urlopen", side_effect=_fake_urlopen_tampered),
     ):
         with pytest.raises(OSError, match="SHA-256"):
             ensure_model_files(cfg)
-        assert not (tmp_path / "kokoro-v1.0.onnx").exists()
-        assert not (tmp_path / "kokoro-v1.0.tmp").exists()
+        assert nested.exists()
+        assert timeouts == [30]
+        assert not (nested / "kokoro-v1.0.onnx").exists()
+        assert not (nested / "kokoro-v1.0.tmp").exists()
 
     valid_bytes = b"valid-kokoro-payload"
     valid_digest = hashlib.sha256(valid_bytes).hexdigest()
 
-    def _valid_urlretrieve(url, dest):
-        dest.write_bytes(valid_bytes)
-        return dest, None
+    def _valid_urlopen(url, timeout=None):
+        timeouts.append(timeout)
+        return io.BytesIO(valid_bytes)
 
     with (
         patch("deskpilot.voice.MIN_MODEL_SIZE", 5),
         patch("deskpilot.voice.MIN_VOICES_SIZE", 5),
         patch("deskpilot.voice.KOKORO_MODEL_SHA256", valid_digest),
         patch("deskpilot.voice.KOKORO_VOICES_SHA256", valid_digest),
-        patch("deskpilot.voice.urllib.request.urlretrieve", side_effect=_valid_urlretrieve),
+        patch("deskpilot.voice.urllib.request.urlopen", side_effect=_valid_urlopen),
     ):
         m_path, v_path = ensure_model_files(cfg)
         assert m_path.exists()
         assert v_path.exists()
+        assert timeouts == [30, 30, 30]
+
+
+def test_speak_text_sync_holds_audio_lock_across_speech_and_chime():
+    from deskpilot import voice
+
+    cfg = VoiceConfig(enabled=True)
+    events: list[str] = []
+
+    class _RecordingLock:
+        def __enter__(self):
+            events.append("lock_enter")
+            return self
+
+        def __exit__(self, *args):
+            events.append("lock_exit")
+
+    fake_kokoro = MagicMock()
+    fake_kokoro.create.return_value = ([0.0], 24000)
+
+    with (
+        patch.object(voice, "_audio_lock", _RecordingLock()),
+        patch.object(voice, "get_kokoro", return_value=fake_kokoro),
+        patch.object(voice, "play_audio_samples", side_effect=lambda *a, **kw: events.append("speech")),
+        patch.object(voice, "play_chime", side_effect=lambda *a, **kw: events.append("chime")),
+    ):
+        assert voice.speak_text_sync("Hello", cfg) is True
+
+    assert events == ["lock_enter", "speech", "chime", "lock_exit"]
+
 

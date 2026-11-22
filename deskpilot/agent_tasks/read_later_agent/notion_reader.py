@@ -106,10 +106,10 @@ def parse_notion_page(page: dict[str, Any]) -> ReadLaterItem:
         if isinstance(prop, dict):
             p_type = prop.get("type")
             if p_type == "status" and isinstance(prop.get("status"), dict):
-                status = prop["status"].get("name", status)
+                status = prop["status"].get("name") or status
                 break
             elif p_type == "select" and isinstance(prop.get("select"), dict):
-                status = prop["select"].get("name", status)
+                status = prop["select"].get("name") or status
                 break
             elif p_type == "rich_text":
                 parts = prop.get("rich_text", [])
@@ -125,7 +125,7 @@ def parse_notion_page(page: dict[str, Any]) -> ReadLaterItem:
     else:
         for prop in properties.values():
             if isinstance(prop, dict) and prop.get("type") == "status" and isinstance(prop.get("status"), dict):
-                status = prop["status"].get("name", status)
+                status = prop["status"].get("name") or status
                 break
 
     # 4. Extract Added Date
@@ -208,17 +208,27 @@ async def query_unread_items(
 
     async def _try_query(endpoint: Any, target_arg: str, target_val: str, filt: dict[str, Any] | None) -> dict[str, Any] | None:
         try:
-            kwargs = {target_arg: target_val}
-            if filt is not None:
-                kwargs["filter"] = filt
-            out = endpoint(**kwargs)
-            if inspect.isawaitable(out):
-                out = await out
-            if isinstance(out, dict) and "results" in out:
-                return out
+            all_results: list[Any] = []
+            cursor: str | None = None
+            for _ in range(50):
+                kwargs: dict[str, Any] = {target_arg: target_val}
+                if filt is not None:
+                    kwargs["filter"] = filt
+                if cursor:
+                    kwargs["start_cursor"] = cursor
+                out = endpoint(**kwargs)
+                if inspect.isawaitable(out):
+                    out = await out
+                if not isinstance(out, dict) or "results" not in out:
+                    return None if not all_results else {"results": all_results}
+                all_results.extend(out.get("results") or [])
+                if out.get("has_more") and out.get("next_cursor"):
+                    cursor = out["next_cursor"]
+                else:
+                    break
+            return {"results": all_results}
         except Exception:
             return None
-        return None
 
     # Resolve endpoint and target ID (support both databases.query and modern data_sources.query)
     target_arg = "database_id"
@@ -341,14 +351,25 @@ async def fetch_page_markdown(page_id: str, client: Any = None) -> str:
         if list_fn is None or not callable(list_fn):
             return ""
 
-        res = list_fn(block_id=page_id)
-        if inspect.isawaitable(res):
-            res = await res
+        blocks: list[Any] = []
+        cursor: str | None = None
+        for _ in range(50):
+            list_kwargs: dict[str, Any] = {"block_id": page_id}
+            if cursor:
+                list_kwargs["start_cursor"] = cursor
+            res = list_fn(**list_kwargs)
+            if inspect.isawaitable(res):
+                res = await res
+            if not isinstance(res, dict):
+                if not blocks:
+                    return ""
+                break
+            blocks.extend(res.get("results") or [])
+            if res.get("has_more") and res.get("next_cursor"):
+                cursor = res["next_cursor"]
+            else:
+                break
 
-        if not isinstance(res, dict):
-            return ""
-
-        blocks = res.get("results", [])
         lines: list[str] = []
 
         def _extract_rich_text(elements: list[dict[str, Any]]) -> str:

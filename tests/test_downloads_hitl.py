@@ -215,3 +215,41 @@ def test_no_utf8_bom_in_downloads_hitl_test():
     """Verify test_downloads_hitl.py has no UTF-8 BOM."""
     path = Path(__file__).resolve()
     assert not path.read_bytes().startswith(b"\xef\xbb\xbf"), "File contains UTF-8 BOM"
+
+
+@pytest.mark.asyncio
+async def test_resume_before_human_review_preserves_approved_actions(tmp_path: Path):
+    """Resuming with approved_actions when interrupted before human_review_node must not overwrite them."""
+    stale_exe = tmp_path / "old_installer.exe"
+    stale_exe.write_bytes(b"stale_bytes")
+    _set_file_age_days(stale_exe, 45.0)
+
+    checkpointer = MemorySaver()
+    graph = build_downloads_hygiene_graph(
+        auto_approve=False,
+        review_func=None,
+        checkpointer=checkpointer,
+        interrupt_before=["human_review_node"],
+    )
+
+    thread_id = "resume-before-review-004"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    state = create_initial_state(
+        downloads_dir=tmp_path,
+        archive_dir=tmp_path / "Archive",
+        installer_max_age_days=30,
+        auto_approve=False,
+    )
+
+    await graph.ainvoke(state, config=config)
+    paused = get_hygiene_state(graph, thread_id)
+    assert paused.next == ("human_review_node",)
+
+    resumed = await resume_downloads_hygiene(
+        graph,
+        thread_id=thread_id,
+        approved_actions=["delete_installers"],
+    )
+    assert not stale_exe.exists()
+    assert resumed["total_bytes_freed"] == len(b"stale_bytes")

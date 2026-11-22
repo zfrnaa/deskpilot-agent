@@ -12,8 +12,39 @@ import (
 
 // ShowBentoNotification displays a native floating Bento-styled popup card in the bottom-right corner.
 func ShowBentoNotification(title, body, actionCommand string) error {
+	htaHTML := buildBentoHTA(title, body, actionCommand)
+
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("deskpilot_toast_%d.hta", time.Now().UnixNano()))
+	if err := os.WriteFile(tmpFile, []byte(htaHTML), 0644); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("mshta.exe", tmpFile)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: 0x08000000,
+	}
+	if err := cmd.Start(); err != nil {
+		_ = os.Remove(tmpFile)
+		return err
+	}
+
+	// Clean up temporary HTA file after timeout in background
+	go func() {
+		time.Sleep(12 * time.Second)
+		_ = os.Remove(tmpFile)
+	}()
+
+	return nil
+}
+
+func buildBentoHTA(title, body, actionCommand string) string {
+	openButtonHTML := ""
+	if actionCommand != "" {
+		openButtonHTML = `<button class="btn-open" onclick="openDashboard()">Open Dashboard [1]</button>`
+	}
+
 	// HTML template matching the approved Bento / Catppuccin design tokens
-	htaHTML := fmt.Sprintf(`<!DOCTYPE html>
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -122,8 +153,11 @@ func ShowBentoNotification(title, body, actionCommand string) error {
   }
   function openDashboard() {
     clearTimeout(timer);
-    var shell = new ActiveXObject("WScript.Shell");
-    shell.Run("%s");
+    var cmd = "%s";
+    if (cmd) {
+      var shell = new ActiveXObject("WScript.Shell");
+      shell.Run(cmd);
+    }
     window.close();
   }
   function dismiss() {
@@ -141,34 +175,44 @@ func ShowBentoNotification(title, body, actionCommand string) error {
     <div class="title">%s</div>
     <div class="body-text">%s</div>
     <div class="actions">
-      <button class="btn-open" onclick="openDashboard()">Open Dashboard [1]</button>
+      %s
       <button class="btn-dismiss" onclick="dismiss()">Dismiss</button>
     </div>
   </div>
 </body>
-</html>`, actionCommand, escapeHTML(title), escapeHTML(body))
+</html>`, escapeJSString(actionCommand), escapeHTML(title), escapeHTML(body), openButtonHTML)
+}
 
-	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("deskpilot_toast_%d.hta", time.Now().UnixNano()))
-	if err := os.WriteFile(tmpFile, []byte(htaHTML), 0644); err != nil {
-		return err
+func escapeJSString(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\'':
+			b.WriteString(`\'`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '<':
+			b.WriteString(`\u003c`)
+		case '>':
+			b.WriteString(`\u003e`)
+		case '&':
+			b.WriteString(`\u0026`)
+		case '\u2028':
+			b.WriteString(`\u2028`)
+		case '\u2029':
+			b.WriteString(`\u2029`)
+		default:
+			b.WriteRune(r)
+		}
 	}
-
-	cmd := exec.Command("mshta.exe", tmpFile)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: 0x08000000,
-	}
-	if err := cmd.Start(); err != nil {
-		_ = os.Remove(tmpFile)
-		return err
-	}
-
-	// Clean up temporary HTA file after timeout in background
-	go func() {
-		time.Sleep(12 * time.Second)
-		_ = os.Remove(tmpFile)
-	}()
-
-	return nil
+	return b.String()
 }
 
 func escapeHTML(s string) string {

@@ -14,7 +14,7 @@ def format_boot_notification(state: BootState) -> tuple[str, str]:
     from deskpilot.boot_tasks import CalendarAgendaResult, TempCleanResult, WingetUpdateResult
     from deskpilot.state import format_bytes
 
-    title = "DeskPilot Morning Briefing"
+    title = "DeskPilot Daily Briefing"
     lines: list[str] = []
 
     # 1. System hygiene
@@ -66,7 +66,7 @@ def send_windows_toast(
     activation = ""
     action_xml = ""
     if action_command:
-        safe_action = saxutils.escape(action_command)
+        safe_action = saxutils.escape(action_command, {"'": "&apos;", '"': "&quot;"})
         activation = f"launch='{safe_action}' activationType='protocol'"
         action_xml = (
             "<actions>"

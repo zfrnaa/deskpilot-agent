@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
 import sqlite3
@@ -173,17 +174,16 @@ def _audit_places_db_sync(db_file: Path) -> BookmarkAuditResult:
     db_uri = f"{db_file.resolve().as_uri()}?immutable=1&mode=ro"
 
     try:
-        conn = sqlite3.connect(db_uri, uri=True)
-        cur = conn.cursor()
-        query = """
-            SELECT b.id, p.url, b.title, b.parent, b.dateAdded
-            FROM moz_bookmarks b
-            JOIN moz_places p ON b.fk = p.id
-            WHERE b.type = 1 AND p.url NOT LIKE 'place:%'
-        """
-        cur.execute(query)
-        rows = cur.fetchall()
-        conn.close()
+        with contextlib.closing(sqlite3.connect(db_uri, uri=True)) as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT b.id, p.url, b.title, b.parent, b.dateAdded
+                FROM moz_bookmarks b
+                JOIN moz_places p ON b.fk = p.id
+                WHERE b.type = 1 AND p.url NOT LIKE 'place:%'
+            """
+            cur.execute(query)
+            rows = cur.fetchall()
     except Exception as e:
         return BookmarkAuditResult(
             profile_path=db_file.parent,

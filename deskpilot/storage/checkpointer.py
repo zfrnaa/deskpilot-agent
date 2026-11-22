@@ -22,6 +22,8 @@ def get_sqlite_checkpointer(db_path: Path | None = None) -> BaseCheckpointSaver:
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     saver = SqliteSaver(conn)
     saver.setup()
     return saver
@@ -44,6 +46,8 @@ async def get_async_sqlite_checkpointer(
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = await aiosqlite.connect(str(db_path))
+    await conn.execute("PRAGMA journal_mode=WAL;")
+    await conn.execute("PRAGMA busy_timeout=5000;")
     saver = AsyncSqliteSaver(conn)
     await saver.setup()
     return saver

@@ -167,7 +167,7 @@ def _run_scenario_in_directory(
 
     # Executed actions list
     executed_actions: list[dict[str, Any]] = []
-    if auto_approve and approved_actions:
+    if approved_actions:
         for key in approved_actions:
             group = action_plan.get(key, [])
             for item in group:

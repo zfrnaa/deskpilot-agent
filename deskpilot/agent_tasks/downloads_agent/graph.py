@@ -64,6 +64,11 @@ def human_review_node(
     action_plan = state.get("action_plan", {})
     auto_approve = state.get("auto_approve", False)
 
+    # 0. Preserve pre-populated approved_actions (e.g. from HITL resume_downloads_hygiene)
+    existing_approved = state.get("approved_actions")
+    if existing_approved:
+        return {"approved_actions": list(existing_approved)}
+
     # 1. Custom programmatic review handler (used in tests/automation)
     if review_func is not None:
         approved = review_func(action_plan)

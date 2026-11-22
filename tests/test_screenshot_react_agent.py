@@ -444,3 +444,102 @@ def test_create_database_page_input_defaults_missing_title():
     assert model.title == "Screenshot Note"
 
 
+def test_react_text_only_fallback_does_not_set_image_synced(tmp_path: Path):
+    """When append_to_page or create_database_page falls back to text-only, item.image_synced must remain False."""
+    from deskpilot.agent_tasks.screenshot_agent.react_agent import run_react_consolidation_agent
+    from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotItem
+
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"fake")
+    schema = {"title_prop": "Name", "tag_prop": "Subject", "tag_type": "select"}
+
+    # 1. ReAct loop create_database_page text-only fallback
+    mock_notion = MagicMock()
+    mock_notion.pages.create.side_effect = [
+        Exception("ValidationError: invalid file_upload uuid"),
+        {"id": "page-fallback-1"},
+    ]
+    mock_llm = MagicMock()
+    mock_llm.bind_tools.return_value = mock_llm
+    mock_llm.invoke.return_value = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "create_database_page",
+                "args": {"title": "Fallback Note", "subject": "Dev", "file_upload_id": "fu_12345"},
+                "id": "call_1",
+            }
+        ],
+    )
+    item = ScreenshotItem(path=img, title="Fallback Note", cluster_tag="Dev")
+    res = run_react_consolidation_agent(
+        item=item,
+        notion_client=mock_notion,
+        database_id="db-1",
+        schema=schema,
+        llm=mock_llm,
+        file_upload_id="fu_12345",
+    )
+    assert res["synced"] is True
+    assert item.is_synced is True
+    assert item.image_synced is False
+
+    # 2. Fail-open direct page creation text-only fallback
+    mock_notion2 = MagicMock()
+    mock_notion2.pages.create.side_effect = [
+        Exception("ValidationError: file_upload rejected"),
+        {"id": "page-direct-fallback"},
+    ]
+    failing_llm = MagicMock()
+    failing_llm.bind_tools.return_value = failing_llm
+    failing_llm.invoke.side_effect = RuntimeError("LLM exploded")
+    item2 = ScreenshotItem(path=img, title="Direct Fallback", cluster_tag="Dev")
+    res2 = run_react_consolidation_agent(
+        item=item2,
+        notion_client=mock_notion2,
+        database_id="db-1",
+        schema=schema,
+        llm=failing_llm,
+        file_upload_id="fu_12345",
+    )
+    assert res2["synced"] is True
+    assert item2.is_synced is True
+    assert item2.image_synced is False
+
+
+def test_search_notion_and_fetch_existing_pages_pagination():
+    """Verify search_notion and fetch_existing_database_pages follow has_more / next_cursor."""
+    from deskpilot.agent_tasks.screenshot_agent.notion_sync import fetch_existing_database_pages
+    from deskpilot.agent_tasks.screenshot_agent.react_agent import search_notion
+
+    page1 = {
+        "id": "page-1",
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": "First Page"}]}},
+    }
+    page2 = {
+        "id": "page-2",
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": "Second Page"}]}},
+    }
+
+    mock_client = MagicMock()
+    mock_client.databases.retrieve.return_value = {}
+    mock_client.databases.query.side_effect = [
+        {"results": [page1], "has_more": True, "next_cursor": "cursor-2"},
+        {"results": [page2], "has_more": False, "next_cursor": None},
+    ]
+
+    found = search_notion(notion_client=mock_client, database_id="db-paginated")
+    assert [p["id"] for p in found] == ["page-1", "page-2"]
+    assert mock_client.databases.query.call_count == 2
+
+    mock_client.databases.query.reset_mock()
+    mock_client.databases.query.side_effect = [
+        {"results": [page1], "has_more": True, "next_cursor": "cursor-2"},
+        {"results": [page2], "has_more": False, "next_cursor": None},
+    ]
+    existing = fetch_existing_database_pages(mock_client, "db-paginated")
+    assert [p["id"] for p in existing] == ["page-1", "page-2"]
+    assert mock_client.databases.query.call_count == 2
+
+
+

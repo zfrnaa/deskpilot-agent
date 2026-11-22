@@ -115,38 +115,68 @@ def search_notion(
             ds_id = data_sources[0].get("id")
             if ds_id and hasattr(notion_client.data_sources, "query"):
                 try:
-                    resp = notion_client.data_sources.query(data_source_id=ds_id, page_size=100)
-                    if isinstance(resp, dict):
-                        pages_raw = resp.get("results") or []
+                    cursor: str | None = None
+                    for _ in range(50):
+                        q_kwargs: dict[str, Any] = {"data_source_id": ds_id, "page_size": 100}
+                        if cursor:
+                            q_kwargs["start_cursor"] = cursor
+                        resp = notion_client.data_sources.query(**q_kwargs)
+                        if not isinstance(resp, dict):
+                            break
+                        pages_raw.extend(resp.get("results") or [])
+                        if resp.get("has_more") and resp.get("next_cursor"):
+                            cursor = resp["next_cursor"]
+                        else:
+                            break
                 except Exception as ds_err:
                     logger.debug("data_sources.query failed: %s", ds_err)
 
         # 2. Standard databases.query
         if not pages_raw and hasattr(notion_client.databases, "query"):
             try:
-                resp = notion_client.databases.query(database_id=database_id, page_size=100)
-                if isinstance(resp, dict):
-                    pages_raw = resp.get("results") or []
+                cursor = None
+                for _ in range(50):
+                    q_kwargs = {"database_id": database_id, "page_size": 100}
+                    if cursor:
+                        q_kwargs["start_cursor"] = cursor
+                    resp = notion_client.databases.query(**q_kwargs)
+                    if not isinstance(resp, dict):
+                        break
+                    pages_raw.extend(resp.get("results") or [])
+                    if resp.get("has_more") and resp.get("next_cursor"):
+                        cursor = resp["next_cursor"]
+                    else:
+                        break
             except Exception as q_err:
                 logger.debug("databases.query failed: %s", q_err)
 
         # 3. Fallback: search endpoint
         if not pages_raw and hasattr(notion_client, "search"):
             try:
-                search_resp = notion_client.search(
-                    filter={"value": "page", "property": "object"},
-                    page_size=100,
-                )
-                if isinstance(search_resp, dict):
+                cursor = None
+                clean_target_id = database_id.replace("-", "")
+                for _ in range(50):
+                    s_kwargs: dict[str, Any] = {
+                        "filter": {"value": "page", "property": "object"},
+                        "page_size": 100,
+                    }
+                    if cursor:
+                        s_kwargs["start_cursor"] = cursor
+                    search_resp = notion_client.search(**s_kwargs)
+                    if not isinstance(search_resp, dict):
+                        break
                     all_results = search_resp.get("results") or []
                     for p in all_results:
                         if not isinstance(p, dict):
                             continue
                         parent = p.get("parent") or {}
                         p_db_id = parent.get("database_id", "").replace("-", "")
-                        clean_target_id = database_id.replace("-", "")
                         if p_db_id and p_db_id == clean_target_id:
                             pages_raw.append(p)
+                    if search_resp.get("has_more") and search_resp.get("next_cursor"):
+                        cursor = search_resp["next_cursor"]
+                    else:
+                        break
             except Exception as search_err:
                 logger.debug("client.search failed: %s", search_err)
 
@@ -231,9 +261,12 @@ def append_to_page(
     file_upload_id: str = "",
     *,
     notion_client: Any,
+    image_sync_status: dict[str, bool] | None = None,
 ) -> bool:
     """Append section heading, rationale paragraph, and image block to target page."""
     if notion_client is None or not page_id:
+        if image_sync_status is not None:
+            image_sync_status["image_synced"] = False
         return False
 
     try:
@@ -251,6 +284,7 @@ def append_to_page(
         )
 
     resolved_upload_id = file_upload_id.strip() if file_upload_id and is_valid_uuid(file_upload_id) else None
+    image_attached = bool(resolved_upload_id)
     blocks = build_page_append_section_blocks(dummy_item, file_upload_id=resolved_upload_id)
     try:
         notion_client.blocks.children.append(
@@ -270,8 +304,11 @@ def append_to_page(
                 block_id=page_id,
                 children=fallback_blocks,
             )
+            image_attached = False
         else:
             raise append_err
+    if image_sync_status is not None:
+        image_sync_status["image_synced"] = image_attached
     return True
 
 
@@ -284,6 +321,7 @@ def create_database_page(
     notion_client: Any,
     database_id: str,
     schema: dict[str, Any],
+    image_sync_status: dict[str, bool] | None = None,
 ) -> str:
     """Create a new database page with given title, subject tag, rationale, and image.
 
@@ -297,6 +335,7 @@ def create_database_page(
         rationale=rationale,
     )
     resolved_upload_id = file_upload_id.strip() if file_upload_id and is_valid_uuid(file_upload_id) else None
+    image_attached = bool(resolved_upload_id)
     payload = build_database_page_payload(item, database_id, schema, file_upload_id=resolved_upload_id)
     try:
         created_page = notion_client.pages.create(**payload)
@@ -310,8 +349,12 @@ def create_database_page(
             )
             fallback_payload = build_database_page_payload(item, database_id, schema, file_upload_id=None)
             created_page = notion_client.pages.create(**fallback_payload)
+            image_attached = False
         else:
             raise create_err
+
+    if image_sync_status is not None:
+        image_sync_status["image_synced"] = image_attached
 
     if isinstance(created_page, dict):
         return created_page.get("id") or ""
@@ -323,6 +366,7 @@ def create_notion_react_tools(
     database_id: str,
     schema: dict[str, Any],
     default_file_upload_id: str = "",
+    image_sync_status: dict[str, bool] | None = None,
 ) -> list[StructuredTool]:
     """Create bound LangChain StructuredTool instances for the Notion ReAct agent."""
 
@@ -350,6 +394,7 @@ def create_notion_react_tools(
             rationale=rationale,
             file_upload_id=effective_upload_id,
             notion_client=notion_client,
+            image_sync_status=image_sync_status,
         )
 
     def _create_database_page(
@@ -368,6 +413,7 @@ def create_notion_react_tools(
             notion_client=notion_client,
             database_id=database_id,
             schema=schema,
+            image_sync_status=image_sync_status,
         )
 
     return [
@@ -411,11 +457,13 @@ def run_react_consolidation_agent(
 
     Returns: {"action": "append" | "create", "page_id": page_id, "synced": bool, "error": str | None}
     """
+    image_sync_status: dict[str, bool] = {"image_synced": False}
     tools = create_notion_react_tools(
         notion_client=notion_client,
         database_id=database_id,
         schema=schema,
         default_file_upload_id=file_upload_id,
+        image_sync_status=image_sync_status,
     )
     tools_map = {t.name: t for t in tools}
 
@@ -449,6 +497,7 @@ def run_react_consolidation_agent(
     ]
 
     def _execute_react_loop(active_llm: Any) -> dict[str, Any]:
+        image_sync_status["image_synced"] = False
         llm_with_tools = active_llm.bind_tools(tools)
         current_messages = list(messages)
         max_turns = 5
@@ -547,8 +596,7 @@ def run_react_consolidation_agent(
 
         if action and target_page_id:
             item.is_synced = True
-            if file_upload_id and is_valid_uuid(file_upload_id):
-                item.image_synced = True
+            item.image_synced = bool(image_sync_status.get("image_synced", False))
             return {
                 "action": action,
                 "page_id": target_page_id,
@@ -578,6 +626,7 @@ def run_react_consolidation_agent(
     try:
         logger.info("Failing open to direct database page creation for screenshot: %s", item.title)
         resolved_upload_id = file_upload_id.strip() if file_upload_id and is_valid_uuid(file_upload_id) else None
+        image_attached = bool(resolved_upload_id)
         payload = build_database_page_payload(
             item,
             database_id,
@@ -597,13 +646,13 @@ def run_react_consolidation_agent(
                     file_upload_id=None,
                 )
                 created_page = notion_client.pages.create(**fallback_payload)
+                image_attached = False
             else:
                 raise create_err
 
         page_id = created_page.get("id") if isinstance(created_page, dict) else getattr(created_page, "id", "")
         item.is_synced = True
-        if resolved_upload_id and is_valid_uuid(resolved_upload_id):
-            item.image_synced = True
+        item.image_synced = image_attached
         return {
             "action": "create",
             "page_id": page_id or "",

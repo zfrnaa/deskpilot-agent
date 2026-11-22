@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -13,19 +14,47 @@ var (
 
 const SW_HIDE = 0
 
+// quoteWindowsArg quotes a single command-line argument according to Windows CommandLineToArgvW rules.
+func quoteWindowsArg(arg string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	backslashes := 0
+	for i := 0; i < len(arg); i++ {
+		c := arg[i]
+		if c == '\\' {
+			backslashes++
+		} else if c == '"' {
+			for j := 0; j < backslashes*2+1; j++ {
+				b.WriteByte('\\')
+			}
+			b.WriteByte('"')
+			backslashes = 0
+		} else {
+			for j := 0; j < backslashes; j++ {
+				b.WriteByte('\\')
+			}
+			backslashes = 0
+			b.WriteByte(c)
+		}
+	}
+	for j := 0; j < backslashes*2; j++ {
+		b.WriteByte('\\')
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 // RunDeskPilotElevated triggers 'uv run deskpilot <args>' with Administrator privileges using the 'runas' verb.
 func RunDeskPilotElevated(workDir string, args ...string) error {
 	uv := LocateUV()
-	
+
 	// Arguments for uv
 	cmdArgs := append([]string{"run", "--directory", workDir, "deskpilot"}, args...)
-	argString := ""
+	quoted := make([]string, len(cmdArgs))
 	for i, a := range cmdArgs {
-		if i > 0 {
-			argString += " "
-		}
-		argString += fmt.Sprintf("\"%s\"", a)
+		quoted[i] = quoteWindowsArg(a)
 	}
+	argString := strings.Join(quoted, " ")
 
 	verbPtr, _ := syscall.UTF16PtrFromString("runas")
 	filePtr, _ := syscall.UTF16PtrFromString(uv)

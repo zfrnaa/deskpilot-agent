@@ -151,3 +151,40 @@ def test_run_downloads_evaluation_langsmith_client():
         assert results["local"] is False
         assert results["experiment_url"] == "https://smith.langchain.com/mock-experiment"
         mock_eval.assert_called_once()
+
+
+def test_eval_runner_surfaces_executed_actions_even_when_auto_approve_false(tmp_path):
+    from unittest.mock import MagicMock, patch
+    from deskpilot.agent_tasks.downloads_agent.state import (
+        DownloadFileCategory,
+        DownloadItem,
+        ProposedAction,
+    )
+    from deskpilot.evals.runner import predict_downloads_scenario
+
+    fake_item = DownloadItem(
+        path=tmp_path / "old_installer.exe",
+        filename="old_installer.exe",
+        size_bytes=1024,
+        age_days=60,
+        category=DownloadFileCategory.INSTALLER,
+        proposed_action=ProposedAction.DELETE,
+    )
+    fake_graph = MagicMock()
+    fake_graph.invoke.return_value = {
+        "items": [fake_item],
+        "action_plan": {"DELETE_INSTALLER": [fake_item]},
+        "approved_actions": ["DELETE_INSTALLER"],
+        "errors": [],
+        "total_bytes_freed": 1024,
+        "total_files_moved": 0,
+    }
+
+    with patch("deskpilot.evals.runner.build_downloads_hygiene_graph", return_value=fake_graph):
+        out = predict_downloads_scenario(
+            {"files": [{"filename": "old_installer.exe", "size_bytes": 1024, "age_days": 60}], "auto_approve": False},
+            temp_root=tmp_path,
+        )
+
+    assert len(out["executed_actions"]) == 1
+    assert out["executed_actions"][0]["filename"] == "old_installer.exe"

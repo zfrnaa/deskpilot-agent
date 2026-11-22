@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import shutil
 import threading
 import urllib.request
 from pathlib import Path
@@ -58,9 +59,11 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
 
     if not model_path.exists() or model_path.stat().st_size < MIN_MODEL_SIZE:
         logger.info("Downloading Kokoro ONNX model (~310MB) to %s ...", model_path)
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_model = model_path.with_suffix(".tmp")
         try:
-            urllib.request.urlretrieve(KOKORO_MODEL_URL, tmp_model)
+            with urllib.request.urlopen(KOKORO_MODEL_URL, timeout=30) as resp, tmp_model.open("wb") as fh:
+                shutil.copyfileobj(resp, fh)
             if tmp_model.stat().st_size < MIN_MODEL_SIZE:
                 raise OSError(f"Downloaded model file incomplete: {tmp_model.stat().st_size} bytes")
             if not _verify_sha256(tmp_model, KOKORO_MODEL_SHA256):
@@ -74,9 +77,11 @@ def ensure_model_files(voice_cfg: VoiceConfig) -> tuple[Path, Path]:
 
     if not voices_path.exists() or voices_path.stat().st_size < MIN_VOICES_SIZE:
         logger.info("Downloading Kokoro voices file (~27MB) to %s ...", voices_path)
+        voices_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_voices = voices_path.with_suffix(".tmp")
         try:
-            urllib.request.urlretrieve(KOKORO_VOICES_URL, tmp_voices)
+            with urllib.request.urlopen(KOKORO_VOICES_URL, timeout=30) as resp, tmp_voices.open("wb") as fh:
+                shutil.copyfileobj(resp, fh)
             if tmp_voices.stat().st_size < MIN_VOICES_SIZE:
                 raise OSError(f"Downloaded voices file incomplete: {tmp_voices.stat().st_size} bytes")
             if not _verify_sha256(tmp_voices, KOKORO_VOICES_SHA256):
@@ -239,8 +244,9 @@ def speak_text_sync(text: str, voice_cfg: VoiceConfig) -> bool:
                 speed=voice_cfg.speed,
                 lang=voice_cfg.lang,
             )
-        play_audio_samples(samples, sample_rate, device=voice_cfg.device)
-        play_chime("done", device=voice_cfg.device)
+        with _audio_lock:
+            play_audio_samples(samples, sample_rate, device=voice_cfg.device)
+            play_chime("done", device=voice_cfg.device)
         return True
     except Exception as exc:
         logger.warning("Voice synthesis failed for '%s': %s", text, exc)

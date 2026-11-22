@@ -48,10 +48,7 @@ func main() {
 	loadedCfg, err := LoadConfig(projectRoot)
 	if err != nil {
 		log.Printf("Warning: failed to load config.yaml: %v", err)
-		loadedCfg = &Config{}
-		loadedCfg.Daemon.PollIntervalSeconds = 60
-		loadedCfg.Daemon.ScreenshotThreshold = 10
-		loadedCfg.Daemon.DownloadsCadenceDays = 5
+		loadedCfg = DefaultConfig(projectRoot)
 	}
 	cfg = loadedCfg
 
@@ -137,9 +134,15 @@ func checkThresholds() {
 		if err != nil {
 			log.Printf("watcher error on %s: %v", cfg.Screenshots.Directory, err)
 		} else if len(shots) >= cfg.Daemon.ScreenshotThreshold {
-			title := "Screenshot Triage Alert"
-			body := fmt.Sprintf("%d screenshots accumulated in buffer. Ready to classify and archive to Notion.", len(shots))
-			dispatchAlert(title, body, "deskpilot://open")
+			shouldAlert, errAlert := watcher.ShouldTriggerScreenshotAlert(store, watcher.DefaultScreenshotAlertCooldownSeconds)
+			if errAlert == nil && shouldAlert {
+				title := "Screenshot Triage Alert"
+				body := fmt.Sprintf("%d screenshots accumulated in buffer. Ready to classify and archive to Notion.", len(shots))
+				dispatchAlert(title, body, "deskpilot://open")
+				if store != nil {
+					_ = store.RecordTimestamp(db.ScreenshotsLastAlertKey)
+				}
+			}
 		}
 	}
 
@@ -148,7 +151,9 @@ func checkThresholds() {
 		trig, err := watcher.ShouldTriggerDownloads(store, cfg.Daemon.DownloadsCadenceDays)
 		if err == nil && trig {
 			eligibleCount, errCount := watcher.CountEligibleDownloads(cfg.Downloads.Directory)
-			if errCount == nil && eligibleCount == 0 {
+			if errCount != nil {
+				log.Printf("downloads watcher error on %s: %v", cfg.Downloads.Directory, errCount)
+			} else if eligibleCount == 0 {
 				// Downloads folder is clean; auto-advance timestamp without nagging
 				_ = store.RecordTimestamp(db.DownloadsLastTriggerKey)
 			} else {
@@ -169,8 +174,8 @@ func checkThresholds() {
 			cfg.Memory.HighMemoryLoadThresholdPercent,
 		)
 		if err == nil && trig {
-			// Trigger silent working sets trimming & record timestamp in SQLite
-			_ = runner.RunDeskPilotSilent(projectRoot, "--clear-ram")
+			// Trigger silent working sets trimming (respecting active games) & record timestamp in SQLite
+			_ = runner.RunDeskPilotSilent(projectRoot, "--clear-ram", "--periodic")
 			_ = store.RecordTimestamp(db.MemoryCleanupLastTriggerKey)
 		}
 	}

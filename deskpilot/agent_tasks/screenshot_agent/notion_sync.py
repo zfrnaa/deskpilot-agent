@@ -355,29 +355,65 @@ def fetch_existing_database_pages(notion_client: Any, database_id: str) -> list[
             ds_id = data_sources[0].get("id")
             if ds_id and hasattr(notion_client.data_sources, "query"):
                 try:
-                    resp = notion_client.data_sources.query(data_source_id=ds_id, page_size=100)
-                    if isinstance(resp, dict):
-                        pages_raw = resp.get("results") or []
+                    cursor: str | None = None
+                    for _ in range(50):
+                        q_kwargs: dict[str, Any] = {"data_source_id": ds_id, "page_size": 100}
+                        if cursor:
+                            q_kwargs["start_cursor"] = cursor
+                        resp = notion_client.data_sources.query(**q_kwargs)
+                        if not isinstance(resp, dict):
+                            break
+                        pages_raw.extend(resp.get("results") or [])
+                        if resp.get("has_more") and resp.get("next_cursor"):
+                            cursor = resp["next_cursor"]
+                        else:
+                            break
                 except Exception as ds_err:
                     logger.debug("data_sources.query failed: %s", ds_err)
 
         # 2. Check if client.databases.query exists (standard Notion API)
         if not pages_raw and hasattr(notion_client.databases, "query"):
             try:
-                resp = notion_client.databases.query(database_id=database_id, page_size=100)
-                if isinstance(resp, dict):
-                    pages_raw = resp.get("results") or []
+                cursor = None
+                for _ in range(50):
+                    q_kwargs = {"database_id": database_id, "page_size": 100}
+                    if cursor:
+                        q_kwargs["start_cursor"] = cursor
+                    resp = notion_client.databases.query(**q_kwargs)
+                    if not isinstance(resp, dict):
+                        break
+                    pages_raw.extend(resp.get("results") or [])
+                    if resp.get("has_more") and resp.get("next_cursor"):
+                        cursor = resp["next_cursor"]
+                    else:
+                        break
             except Exception as q_err:
                 logger.debug("databases.query failed: %s", q_err)
 
         # 3. Fallback: use search endpoint if available
         if not pages_raw and hasattr(notion_client, "search"):
             try:
-                search_resp = notion_client.search(
-                    filter={"value": "page", "property": "object"},
-                    page_size=100,
+                cursor = None
+                clean_target_id = database_id.replace("-", "")
+                ds_ids = (
+                    {
+                        ds.get("id", "").replace("-", "")
+                        for ds in data_sources
+                        if isinstance(ds, dict)
+                    }
+                    if data_sources and isinstance(data_sources, list)
+                    else set()
                 )
-                if isinstance(search_resp, dict):
+                for _ in range(50):
+                    s_kwargs: dict[str, Any] = {
+                        "filter": {"value": "page", "property": "object"},
+                        "page_size": 100,
+                    }
+                    if cursor:
+                        s_kwargs["start_cursor"] = cursor
+                    search_resp = notion_client.search(**s_kwargs)
+                    if not isinstance(search_resp, dict):
+                        break
                     all_results = search_resp.get("results") or []
                     for p in all_results:
                         if not isinstance(p, dict):
@@ -385,18 +421,16 @@ def fetch_existing_database_pages(notion_client: Any, database_id: str) -> list[
                         parent = p.get("parent") or {}
                         # Match parent database_id or data_source_id
                         p_db_id = parent.get("database_id", "").replace("-", "")
-                        clean_target_id = database_id.replace("-", "")
                         if p_db_id and p_db_id == clean_target_id:
                             pages_raw.append(p)
-                        elif data_sources and isinstance(data_sources, list):
-                            ds_ids = {
-                                ds.get("id", "").replace("-", "")
-                                for ds in data_sources
-                                if isinstance(ds, dict)
-                            }
+                        elif ds_ids:
                             p_ds_id = parent.get("data_source_id", "").replace("-", "")
                             if p_ds_id and p_ds_id in ds_ids:
                                 pages_raw.append(p)
+                    if search_resp.get("has_more") and search_resp.get("next_cursor"):
+                        cursor = search_resp["next_cursor"]
+                    else:
+                        break
             except Exception as search_err:
                 logger.debug("client.search failed: %s", search_err)
 

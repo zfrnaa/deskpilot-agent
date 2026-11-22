@@ -209,3 +209,60 @@ async def test_run_screenshot_triage_wires_reasoning_llms_to_graph_and_state(tmp
         invoked_state = mock_graph.ainvoke.call_args[0][0]
         assert invoked_state.get("reasoning_llm") == mock_reasoning_llm
         assert invoked_state.get("fallback_reasoning_llm") == mock_fallback_llm
+
+
+@pytest.mark.asyncio
+async def test_run_screenshot_triage_with_checkpointer_and_non_serializable_callbacks(tmp_path: Path):
+    """run_screenshot_triage with MemorySaver checkpointer must set thread_id and avoid serializing callables."""
+    from langgraph.checkpoint.memory import MemorySaver
+
+    _create_dummy_image(tmp_path / "cp_test.png")
+    settings = Settings(
+        _env_file=None,
+        screenshots=ScreenshotsConfig(directory=tmp_path, delete_synced_local=False, organize_local=False),
+        notion=NotionConfig(token="", screenshot_destinations=ScreenshotDestinationsConfig()),
+    )
+
+    def mock_vision(item):
+        item.classification = "LOCAL_KEEP"
+        item.title = "Checkpointed Item"
+        return item
+
+    checkpointer = MemorySaver()
+    result = await run_screenshot_triage(
+        settings=settings,
+        llm=mock_vision,
+        prompt_func=lambda msg: "n",
+        console_print=lambda msg: None,
+        auto_approve=True,
+        checkpointer=checkpointer,
+        thread_id="test-thread-cp-1",
+    )
+    assert len(result["items"]) == 1
+    assert result["items"][0].title == "Checkpointed Item"
+
+
+def test_scan_screenshots_skips_symlinks(tmp_path: Path):
+    """scan_screenshots must skip symlinked image files."""
+    from deskpilot.agent_tasks.screenshot_agent.graph import scan_screenshots
+
+    real_img = tmp_path / "real.png"
+    _create_dummy_image(real_img)
+
+    outside_img = tmp_path / "outside.png"
+    _create_dummy_image(outside_img)
+
+    scan_dir = tmp_path / "scan_dir"
+    scan_dir.mkdir()
+    _create_dummy_image(scan_dir / "valid.png")
+
+    link_path = scan_dir / "linked.png"
+    try:
+        link_path.symlink_to(outside_img)
+    except OSError:
+        pytest.skip("Symlink creation requires elevated privileges on this Windows host")
+
+    res = scan_screenshots({"screenshots_dir": scan_dir, "max_images": 10})
+    filenames = [it.filename for it in res["items"]]
+    assert filenames == ["valid.png"]
+

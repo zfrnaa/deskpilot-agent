@@ -51,6 +51,47 @@ func expandHome(path string) string {
 	return path
 }
 
+// DefaultConfig returns a Config populated with sensible defaults and resolved paths.
+func DefaultConfig(projectRoot string) *Config {
+	var cfg Config
+	cfg.Daemon.Enabled = true
+	cfg.Daemon.PollIntervalSeconds = 60
+	cfg.Daemon.ScreenshotThreshold = 10
+	cfg.Daemon.DownloadsCadenceDays = 5
+	cfg.Daemon.NotificationStyle = "bento"
+	cfg.Storage.Enabled = true
+	cfg.Memory.Enabled = true
+	cfg.Memory.PeriodicCleanupEnabled = true
+	cfg.Memory.PeriodicIntervalMinutes = 30
+	cfg.Memory.HighMemoryLoadThresholdPercent = 75
+
+	resolveDefaultPaths(&cfg, projectRoot)
+	return &cfg
+}
+
+func resolveDefaultPaths(cfg *Config, projectRoot string) {
+	userProfile := os.Getenv("USERPROFILE")
+
+	cfg.Screenshots.Directory = expandHome(cfg.Screenshots.Directory)
+	if cfg.Screenshots.Directory == "" && userProfile != "" {
+		cfg.Screenshots.Directory = filepath.Join(userProfile, "Pictures", "Screenshots")
+	}
+
+	cfg.Downloads.Directory = expandHome(cfg.Downloads.Directory)
+	if cfg.Downloads.Directory == "" && userProfile != "" {
+		cfg.Downloads.Directory = filepath.Join(userProfile, "Downloads")
+	}
+
+	cfg.Storage.DbPath = expandHome(cfg.Storage.DbPath)
+	if cfg.Storage.DbPath == "" {
+		if userProfile != "" {
+			cfg.Storage.DbPath = filepath.Join(userProfile, ".deskpilot", "storage.db")
+		} else {
+			cfg.Storage.DbPath = filepath.Join(projectRoot, "storage.db")
+		}
+	}
+}
+
 func LoadConfig(projectRoot string) (*Config, error) {
 	cfgPath := filepath.Join(projectRoot, "config.yaml")
 	data, err := os.ReadFile(cfgPath)
@@ -58,48 +99,16 @@ func LoadConfig(projectRoot string) (*Config, error) {
 		return nil, err
 	}
 
-	var cfg Config
-	// Defaults
-	cfg.Daemon.Enabled = true
-	cfg.Daemon.PollIntervalSeconds = 60
-	cfg.Daemon.ScreenshotThreshold = 10
-	cfg.Daemon.DownloadsCadenceDays = 5
-	cfg.Daemon.NotificationStyle = "bento"
-	cfg.Memory.Enabled = true
-	cfg.Memory.PeriodicCleanupEnabled = true
-	cfg.Memory.PeriodicIntervalMinutes = 30
-	cfg.Memory.HighMemoryLoadThresholdPercent = 75
+	cfg := DefaultConfig(projectRoot)
+	// Clear default paths before unmarshaling so YAML values can override them cleanly
+	cfg.Screenshots.Directory = ""
+	cfg.Downloads.Directory = ""
+	cfg.Storage.DbPath = ""
 
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
 
-	// Expand ~/ and resolve defaults
-	cfg.Screenshots.Directory = expandHome(cfg.Screenshots.Directory)
-	if cfg.Screenshots.Directory == "" {
-		userProfile := os.Getenv("USERPROFILE")
-		if userProfile != "" {
-			cfg.Screenshots.Directory = filepath.Join(userProfile, "Pictures", "Screenshots")
-		}
-	}
-
-	cfg.Downloads.Directory = expandHome(cfg.Downloads.Directory)
-	if cfg.Downloads.Directory == "" {
-		userProfile := os.Getenv("USERPROFILE")
-		if userProfile != "" {
-			cfg.Downloads.Directory = filepath.Join(userProfile, "Downloads")
-		}
-	}
-
-	cfg.Storage.DbPath = expandHome(cfg.Storage.DbPath)
-	if cfg.Storage.DbPath == "" {
-		userProfile := os.Getenv("USERPROFILE")
-		if userProfile != "" {
-			cfg.Storage.DbPath = filepath.Join(userProfile, ".deskpilot", "storage.db")
-		} else {
-			cfg.Storage.DbPath = filepath.Join(projectRoot, "storage.db")
-		}
-	}
-
-	return &cfg, nil
+	resolveDefaultPaths(cfg, projectRoot)
+	return cfg, nil
 }

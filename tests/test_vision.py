@@ -97,3 +97,40 @@ def test_sanitize_cluster_tag_and_format_preferences_blocks_prompt_injection():
     assert "ValidTag" in formatted
     assert "Ignore all rules" not in formatted
 
+
+def test_classify_screenshot_gemini_quota_falls_back_to_ollama_even_with_env_key(
+    tmp_path: Path, monkeypatch
+):
+    """On Gemini 429/quota error, classify_screenshot must call get_ollama_vision_llm directly."""
+    from unittest.mock import MagicMock, patch
+    from PIL import Image
+    from deskpilot.agent_tasks.screenshot_agent.state import ScreenshotItem
+    from deskpilot.agent_tasks.screenshot_agent.vision import classify_screenshot
+
+    img_path = tmp_path / "quota_test.png"
+    Image.new("RGB", (8, 8), color="blue").save(img_path)
+    item = ScreenshotItem(path=img_path)
+
+    monkeypatch.setenv("GEMINI_API_KEY", "should-not-be-reused-on-quota-fallback")
+
+    class FakeGeminiLLM:
+        def invoke(self, messages):
+            raise RuntimeError("429 RESOURCE_EXHAUSTED: quota exceeded")
+
+    fake_ollama = MagicMock()
+    fake_ollama.invoke.return_value = MagicMock(
+        content='{"classification": "WORK_NOTES", "title": "Ollama Fallback", "cluster_tag": "Dev", "rationale": "Fallback worked"}'
+    )
+
+    with patch(
+        "deskpilot.agent_tasks.screenshot_agent.vision.get_ollama_vision_llm",
+        return_value=fake_ollama,
+    ) as mock_get_ollama:
+        result = classify_screenshot(item, llm=FakeGeminiLLM())
+
+    mock_get_ollama.assert_called_once_with(ollama_model="minicpm-v")
+    fake_ollama.invoke.assert_called_once()
+    assert result.classification == "WORK_NOTES"
+    assert result.title == "Ollama Fallback"
+
+

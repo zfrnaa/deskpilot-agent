@@ -339,3 +339,60 @@ def test_clean_antigravity_orphans_skips_symlinks_and_junctions(tmp_path: Path):
         assert res.dirs_removed == 0
         assert (linked_orphan / "important.txt").exists()
 
+
+
+def test_privacy_sweep_dry_run_does_not_double_count_recent_subdirs(tmp_path):
+    import os
+    import time
+    from deskpilot.boot_tasks.system_hygiene import _clean_privacy_sweep_sync
+
+    roaming = tmp_path / "Roaming"
+    local = tmp_path / "Local"
+    auto_dest = roaming / "Microsoft" / "Windows" / "Recent" / "AutomaticDestinations"
+    auto_dest.mkdir(parents=True)
+    f = auto_dest / "jump.automaticDestinations-ms"
+    f.write_bytes(b"0" * 100)
+    old_mtime = time.time() - (40 * 86400)
+    os.utime(f, (old_mtime, old_mtime))
+
+    res = _clean_privacy_sweep_sync(max_age_days=30, dry_run=True, appdata_roaming=roaming, local_appdata=local)
+    assert res.files_removed == 1
+    assert res.privacy_traces_cleared == 1
+    assert res.bytes_freed == 100
+
+
+def test_antigravity_orphans_closes_sqlite_on_error_and_checks_rmtree_result(tmp_path):
+    import sqlite3
+    from unittest.mock import MagicMock, patch
+    from deskpilot.boot_tasks.system_hygiene import _clean_antigravity_orphans_sync
+
+    ag_dir = tmp_path / "antigravity"
+    ag_dir.mkdir()
+    db_path = ag_dir / "conversation_summaries.db"
+    db_path.write_bytes(b"")
+
+    # 1. Connection closes on query exception
+    fake_conn = MagicMock()
+    fake_conn.cursor.return_value.execute.side_effect = RuntimeError("bad schema")
+    with patch("deskpilot.boot_tasks.system_hygiene.sqlite3.connect", return_value=fake_conn):
+        res = _clean_antigravity_orphans_sync(antigravity_dir=ag_dir, dry_run=False)
+    assert any("bad schema" in e for e in res.errors)
+    fake_conn.close.assert_called_once()
+
+    # 2. Failed rmtree does not count removed bytes/files/dirs
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE conversation_summaries (conversation_id TEXT)")
+    conn.commit()
+    conn.close()
+
+    orphan = ag_dir / "brain" / "orphan-conv"
+    orphan.mkdir(parents=True)
+    (orphan / "data.bin").write_bytes(b"x" * 50)
+
+    with patch("deskpilot.boot_tasks.system_hygiene.shutil.rmtree"):
+        res2 = _clean_antigravity_orphans_sync(antigravity_dir=ag_dir, dry_run=False)
+
+    assert orphan.exists()
+    assert res2.dirs_removed == 0
+    assert res2.files_removed == 0
+    assert res2.bytes_freed == 0

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable
@@ -97,41 +98,44 @@ class SQLiteStore(BaseStore):
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
         return conn
 
     def _init_db(self) -> None:
-        with self._get_connection() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS store_items (
-                    namespace TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (namespace, key)
-                );
-                CREATE INDEX IF NOT EXISTS idx_store_namespace ON store_items (namespace);
-                """
-            )
+        with contextlib.closing(self._get_connection()) as conn:
+            with conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS store_items (
+                        namespace TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (namespace, key)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_store_namespace ON store_items (namespace);
+                    """
+                )
 
     def batch(self, ops: Iterable[Op]) -> list[Result]:
         """Execute a batch of operations synchronously."""
         results: list[Result] = []
-        with self._get_connection() as conn:
-            cur = conn.cursor()
-            for op in ops:
-                if isinstance(op, PutOp):
-                    results.append(self._handle_put(cur, op))
-                elif isinstance(op, GetOp):
-                    results.append(self._handle_get(cur, op))
-                elif isinstance(op, SearchOp):
-                    results.append(self._handle_search(cur, op))
-                elif isinstance(op, ListNamespacesOp):
-                    results.append(self._handle_list_namespaces(cur, op))
-                else:
-                    raise ValueError(f"Unknown operation type: {type(op)}")
-            conn.commit()
+        with contextlib.closing(self._get_connection()) as conn:
+            with conn:
+                cur = conn.cursor()
+                for op in ops:
+                    if isinstance(op, PutOp):
+                        results.append(self._handle_put(cur, op))
+                    elif isinstance(op, GetOp):
+                        results.append(self._handle_get(cur, op))
+                    elif isinstance(op, SearchOp):
+                        results.append(self._handle_search(cur, op))
+                    elif isinstance(op, ListNamespacesOp):
+                        results.append(self._handle_list_namespaces(cur, op))
+                    else:
+                        raise ValueError(f"Unknown operation type: {type(op)}")
         return results
 
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:

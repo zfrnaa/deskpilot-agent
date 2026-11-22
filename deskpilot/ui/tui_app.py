@@ -572,7 +572,10 @@ class WingetUpgradeRunModal(ModalScreen[list[str] | bool]):
             except Exception:
                 pass
         elif key in ("escape", "q") and not self._is_running:
+            event.stop()
             self.dismiss(self.succeeded_ids if self.succeeded_ids else self.success)
+        elif key == "escape":
+            event.stop()
 
 
 class WingetInspectorModal(ModalScreen[int]):
@@ -726,6 +729,7 @@ class WingetInspectorModal(ModalScreen[int]):
     def on_key(self, event) -> None:
         key = event.key.lower()
         if key in ("escape", "q"):
+            event.stop()
             self.dismiss(None)
         elif key in ("u",):
             if not self._current_pkg_id or not self.updates:
