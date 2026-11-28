@@ -548,7 +548,7 @@ def prompt_action_menu(
     )
     menu_table.add_row(
         "[bold cyan][2][/bold cyan]",
-        f"Downloads Folder Cleanup  [dim]• Smart categorize & delete advice[/dim]",
+        f"Downloads Folder Cleanup  [dim]• Sort into category folders & delete advice[/dim]",
     )
     menu_table.add_row(
         "[bold cyan][3][/bold cyan]",
@@ -959,7 +959,7 @@ async def execute_menu_action(
             freed = format_bytes(dh_res.get("total_bytes_freed", 0))
             moved = dh_res.get("total_files_moved", 0)
             errors = dh_res.get("errors", [])
-            c.print(f"[bold green]Downloads Cleanup complete:[/bold green] Freed: {freed}, Moved to Archive: {moved}")
+            c.print(f"[bold green]Downloads Cleanup complete:[/bold green] Freed: {freed}, Sorted into folders: {moved}")
             if errors:
                 c.print(f"[yellow]Warnings/Errors ({len(errors)}):[/yellow] {escape_markup(str(errors[0]))}")
 

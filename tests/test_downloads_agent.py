@@ -116,10 +116,11 @@ def test_categorization_various_file_types(tmp_path: Path):
         "sheet.xlsx": DownloadFileCategory.DOCUMENT,
         "doc.docx": DownloadFileCategory.DOCUMENT,
         "data.csv": DownloadFileCategory.DOCUMENT,
-        "video.mp4": DownloadFileCategory.MEDIA,
-        "song.mp3": DownloadFileCategory.MEDIA,
-        "pic.png": DownloadFileCategory.MEDIA,
-        "script.py": DownloadFileCategory.OTHER,
+        "video.mp4": DownloadFileCategory.VIDEO,
+        "song.mp3": DownloadFileCategory.AUDIO,
+        "pic.png": DownloadFileCategory.IMAGE,
+        "script.py": DownloadFileCategory.CODE,
+        "random.xyz": DownloadFileCategory.OTHER,
     }
 
     for name, expected_cat in files.items():
@@ -147,7 +148,7 @@ def test_stale_installer_detection_and_action_proposal(tmp_path: Path):
 
     u_recent = categorize_item(recent_item, installer_max_age_days=30)
     assert u_recent.category == DownloadFileCategory.INSTALLER
-    assert u_recent.proposed_action == ProposedAction.KEEP
+    assert u_recent.proposed_action == ProposedAction.SORT
     assert "recent" in u_recent.rationale.lower() or "limit" in u_recent.rationale.lower()
 
 
@@ -206,7 +207,7 @@ def test_duplicate_download_not_marked_if_base_file_missing(tmp_path: Path):
 
     # Since base file is missing, it should NOT be marked DUPLICATE or proposed for DELETE
     assert updated.category == DownloadFileCategory.DOCUMENT
-    assert updated.proposed_action == ProposedAction.ARCHIVE
+    assert updated.proposed_action == ProposedAction.SORT
     assert "duplicate" not in updated.rationale.lower()
 
 
@@ -227,10 +228,10 @@ def test_action_proposal_logic_for_archives_and_documents(tmp_path: Path):
     )
 
     assert item_doc.category == DownloadFileCategory.DOCUMENT
-    assert item_doc.proposed_action == ProposedAction.ARCHIVE
+    assert item_doc.proposed_action == ProposedAction.SORT
 
     assert item_arc.category == DownloadFileCategory.ARCHIVE
-    assert item_arc.proposed_action == ProposedAction.ARCHIVE
+    assert item_arc.proposed_action == ProposedAction.SORT
 
 
 def test_assemble_action_plan_groups_categories(tmp_path: Path):
@@ -238,27 +239,28 @@ def test_assemble_action_plan_groups_categories(tmp_path: Path):
     items = [
         DownloadItem(path=tmp_path / "old.exe", filename="old.exe", size_bytes=1000, category=DownloadFileCategory.INSTALLER, age_days=40.0, proposed_action=ProposedAction.DELETE),
         DownloadItem(path=tmp_path / "doc (1).pdf", filename="doc (1).pdf", size_bytes=500, category=DownloadFileCategory.DUPLICATE, age_days=2.0, proposed_action=ProposedAction.DELETE),
-        DownloadItem(path=tmp_path / "report.pdf", filename="report.pdf", size_bytes=200, category=DownloadFileCategory.DOCUMENT, age_days=10.0, proposed_action=ProposedAction.ARCHIVE),
-        DownloadItem(path=tmp_path / "backup.zip", filename="backup.zip", size_bytes=800, category=DownloadFileCategory.ARCHIVE, age_days=15.0, proposed_action=ProposedAction.ARCHIVE),
+        DownloadItem(path=tmp_path / "report.pdf", filename="report.pdf", size_bytes=200, category=DownloadFileCategory.DOCUMENT, age_days=10.0, proposed_action=ProposedAction.SORT),
+        DownloadItem(path=tmp_path / "backup.zip", filename="backup.zip", size_bytes=800, category=DownloadFileCategory.ARCHIVE, age_days=15.0, proposed_action=ProposedAction.SORT),
         DownloadItem(path=tmp_path / "new.exe", filename="new.exe", size_bytes=1000, category=DownloadFileCategory.INSTALLER, age_days=2.0, proposed_action=ProposedAction.KEEP),
-        DownloadItem(path=tmp_path / "pic.png", filename="pic.png", size_bytes=300, category=DownloadFileCategory.MEDIA, age_days=5.0, proposed_action=ProposedAction.KEEP),
+        DownloadItem(path=tmp_path / "pic.png", filename="pic.png", size_bytes=300, category=DownloadFileCategory.IMAGE, age_days=5.0, proposed_action=ProposedAction.KEEP),
     ]
 
     plan = assemble_action_plan(items)
     assert set(plan.keys()) == {
         "delete_installers",
         "delete_duplicates",
-        "archive_documents",
-        "archive_archives",
+        "sort_documents",
+        "sort_archives",
     }
     assert len(plan["delete_installers"]) == 1
     assert len(plan["delete_duplicates"]) == 1
-    assert len(plan["archive_documents"]) == 1
-    assert len(plan["archive_archives"]) == 1
+    assert len(plan["sort_documents"]) == 1
+    assert len(plan["sort_archives"]) == 1
 
     summaries = format_plan_summary(plan)
     assert len(summaries) == 4
     assert any("stale installer" in s.lower() for s in summaries)
+    assert any(s.startswith("Sort into Documents") for s in summaries)
 
 
 def test_human_review_node_auto_approve_behavior(tmp_path: Path):
@@ -297,18 +299,16 @@ def test_safety_rule_no_files_touched_without_approval(tmp_path: Path):
     doc_pdf = tmp_path / "contract.docx"
     doc_pdf.write_bytes(b"contract_bytes")
 
-    archive_dir = tmp_path / "Archive"
-
     items = [
         DownloadItem(path=stale_exe, filename="old_setup.exe", size_bytes=15, category=DownloadFileCategory.INSTALLER, age_days=40.0, proposed_action=ProposedAction.DELETE),
         DownloadItem(path=dup_pdf, filename="tax (1).pdf", size_bytes=13, category=DownloadFileCategory.DUPLICATE, age_days=2.0, proposed_action=ProposedAction.DELETE),
-        DownloadItem(path=doc_pdf, filename="contract.docx", size_bytes=14, category=DownloadFileCategory.DOCUMENT, age_days=10.0, proposed_action=ProposedAction.ARCHIVE),
+        DownloadItem(path=doc_pdf, filename="contract.docx", size_bytes=14, category=DownloadFileCategory.DOCUMENT, age_days=10.0, proposed_action=ProposedAction.SORT),
     ]
 
     freed, moved, errors = execute_approved_actions(
         items=items,
         approved_actions=[],  # Nothing approved!
-        archive_dir=archive_dir,
+        sort_root=tmp_path,
     )
 
     assert freed == 0
@@ -317,7 +317,7 @@ def test_safety_rule_no_files_touched_without_approval(tmp_path: Path):
     assert stale_exe.exists(), "Unapproved file must remain on disk!"
     assert dup_pdf.exists(), "Unapproved duplicate must remain on disk!"
     assert doc_pdf.exists(), "Unapproved document must remain in downloads!"
-    assert not archive_dir.exists(), "Archive directory should not even be created if nothing moved"
+    assert not (tmp_path / "Documents").exists(), "Category folder should not even be created if nothing moved"
     for item in items:
         assert item.is_executed is False
 
@@ -342,7 +342,7 @@ def test_execute_approved_deletions(tmp_path: Path):
     freed, moved, errors = execute_approved_actions(
         items=items,
         approved_actions=["delete_installers", "delete_duplicates"],
-        archive_dir=tmp_path / "Archive",
+        sort_root=tmp_path,
     )
 
     assert freed == 3000
@@ -365,17 +365,15 @@ def test_execute_approved_archiving(tmp_path: Path):
     archive_zip = tmp_path / "bundle.zip"
     archive_zip.write_bytes(b"zip_content")
 
-    archive_dir = tmp_path / "Archive"
-
     items = [
-        DownloadItem(path=doc, filename="report.pdf", size_bytes=14, category=DownloadFileCategory.DOCUMENT, age_days=20.0, proposed_action=ProposedAction.ARCHIVE),
-        DownloadItem(path=archive_zip, filename="bundle.zip", size_bytes=11, category=DownloadFileCategory.ARCHIVE, age_days=15.0, proposed_action=ProposedAction.ARCHIVE),
+        DownloadItem(path=doc, filename="report.pdf", size_bytes=14, category=DownloadFileCategory.DOCUMENT, age_days=20.0, proposed_action=ProposedAction.SORT),
+        DownloadItem(path=archive_zip, filename="bundle.zip", size_bytes=11, category=DownloadFileCategory.ARCHIVE, age_days=15.0, proposed_action=ProposedAction.SORT),
     ]
 
     freed, moved, errors = execute_approved_actions(
         items=items,
-        approved_actions=["archive_documents", "archive_archives"],
-        archive_dir=archive_dir,
+        approved_actions=["sort_documents", "sort_archives"],
+        sort_root=tmp_path,
     )
 
     assert freed == 0
@@ -383,15 +381,15 @@ def test_execute_approved_archiving(tmp_path: Path):
     assert errors == []
     assert not doc.exists(), "Original document should be moved"
     assert not archive_zip.exists(), "Original archive should be moved"
-    assert (archive_dir / "report.pdf").exists()
-    assert (archive_dir / "bundle.zip").exists()
+    assert (tmp_path / "Documents" / "report.pdf").exists()
+    assert (tmp_path / "Archives" / "bundle.zip").exists()
     assert items[0].is_executed is True
     assert items[1].is_executed is True
 
 
 def test_execute_archiving_handles_name_collisions(tmp_path: Path):
     """Verify archiving avoids overwriting existing files in archive_dir by renaming."""
-    archive_dir = tmp_path / "Archive"
+    archive_dir = tmp_path / "Documents"
     archive_dir.mkdir()
     (archive_dir / "notes.pdf").write_bytes(b"existing_archive_file")
 
@@ -399,13 +397,13 @@ def test_execute_archiving_handles_name_collisions(tmp_path: Path):
     source_doc.write_bytes(b"new_notes_content")
 
     items = [
-        DownloadItem(path=source_doc, filename="notes.pdf", size_bytes=17, category=DownloadFileCategory.DOCUMENT, age_days=5.0, proposed_action=ProposedAction.ARCHIVE),
+        DownloadItem(path=source_doc, filename="notes.pdf", size_bytes=17, category=DownloadFileCategory.DOCUMENT, age_days=5.0, proposed_action=ProposedAction.SORT),
     ]
 
     freed, moved, errors = execute_approved_actions(
         items=items,
-        approved_actions=["archive_documents"],
-        archive_dir=archive_dir,
+        approved_actions=["sort_documents"],
+        sort_root=tmp_path,
     )
 
     assert moved == 1
@@ -430,9 +428,9 @@ async def test_end_to_end_graph_execution(tmp_path: Path):
 
     state = create_initial_state(
         downloads_dir=tmp_path,
-        archive_dir=tmp_path / "Archive",
         installer_max_age_days=30,
         auto_approve=True,
+        min_file_age_minutes=0,
     )
 
     final_state = await graph.ainvoke(state)
@@ -443,7 +441,7 @@ async def test_end_to_end_graph_execution(tmp_path: Path):
     assert not stale_exe.exists()
     assert not doc_dup.exists()
     assert not fresh_doc.exists()
-    assert (tmp_path / "Archive" / "report.pdf").exists()
+    assert (tmp_path / "Documents" / "report.pdf").exists()
 
 
 @pytest.mark.asyncio
@@ -495,3 +493,61 @@ def test_lazy_loading_of_langgraph_and_downloads_agent():
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, f"Lazy loading check failed: {result.stderr}"
+
+
+def test_recent_file_is_kept_in_place(tmp_path: Path):
+    """Files younger than min_file_age_minutes are left alone (may still be downloading/in use)."""
+    p = tmp_path / "fresh.pdf"
+    p.write_bytes(b"x")
+    item = DownloadItem(path=p, filename="fresh.pdf", size_bytes=1, age_days=5 / 1440.0)
+    updated = categorize_item(item, installer_max_age_days=30, min_file_age_minutes=10)
+    assert updated.proposed_action == ProposedAction.KEEP
+    assert "recently downloaded" in updated.rationale.lower()
+
+
+def test_scan_skips_partial_and_hidden_downloads(tmp_path: Path):
+    """In-progress partial downloads and hidden files are never scanned."""
+    for name in ("movie.mp4.crdownload", "big.iso.part", ".hidden", "~lock.docx", "desktop.ini", "Thumbs.db", "ok.pdf"):
+        (tmp_path / name).write_bytes(b"x")
+    items, errors = scan_directory(tmp_path)
+    assert errors == []
+    assert [i.filename for i in items] == ["ok.pdf"]
+
+
+def test_end_to_end_sorts_into_category_folders(tmp_path: Path):
+    """Every file type lands in its category folder; stale installers & duplicates are deleted."""
+    names = ["a.zip", "b.png", "c.mp4", "d.mp3", "e.py", "f.pdf", "g.xyz", "new.exe", "old.exe", "f (1).pdf"]
+    for n in names:
+        (tmp_path / n).write_bytes(b"data")
+        _set_file_age_days(tmp_path / n, 2.0)
+    _set_file_age_days(tmp_path / "old.exe", 90.0)
+    (tmp_path / "partial.crdownload").write_bytes(b"x")
+
+    graph = build_downloads_hygiene_graph(auto_approve=True)
+    state = create_initial_state(downloads_dir=tmp_path, installer_max_age_days=30, auto_approve=True)
+    final = graph.invoke(state)
+
+    assert final["errors"] == []
+    expected = {
+        "Archives": "a.zip", "Images": "b.png", "Videos": "c.mp4", "Audio": "d.mp3",
+        "Code": "e.py", "Documents": "f.pdf", "Other": "g.xyz", "Installers": "new.exe",
+    }
+    for folder, name in expected.items():
+        assert (tmp_path / folder / name).exists(), f"{name} should be in {folder}"
+    assert not (tmp_path / "old.exe").exists()
+    assert not (tmp_path / "f (1).pdf").exists()
+    assert (tmp_path / "partial.crdownload").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows file attributes only")
+def test_scan_skips_windows_hidden_and_system_files(tmp_path: Path):
+    """Files carrying the Windows HIDDEN or SYSTEM attribute are never scanned, whatever their name."""
+    import subprocess
+
+    for name in ("secret.pdf", "sys.png", "visible.pdf"):
+        (tmp_path / name).write_bytes(b"x")
+    subprocess.run(["attrib", "+h", str(tmp_path / "secret.pdf")], check=True)
+    subprocess.run(["attrib", "+s", str(tmp_path / "sys.png")], check=True)
+
+    items, _ = scan_directory(tmp_path)
+    assert [i.filename for i in items] == ["visible.pdf"]

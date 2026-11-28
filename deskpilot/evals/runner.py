@@ -51,11 +51,12 @@ def _map_category_to_str(cat: DownloadFileCategory, item: DownloadItem) -> str:
         return "archives"
     if item.category == DownloadFileCategory.INSTALLER:
         return "installers"
-    if item.category == DownloadFileCategory.MEDIA:
-        ext = item.path.suffix.lower()
-        if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"}:
-            return "images"
+    if item.category == DownloadFileCategory.IMAGE:
+        return "images"
+    if item.category in (DownloadFileCategory.VIDEO, DownloadFileCategory.AUDIO):
         return "media"
+    if item.category == DownloadFileCategory.CODE:
+        return "code"
     ext = item.path.suffix.lower()
     if ext in {".dll", ".sys", ".drv"}:
         return "system"
@@ -131,11 +132,10 @@ def _run_scenario_in_directory(
     """Helper executing graph and assembling output metrics."""
     _populate_sandbox_files(sandbox_path, raw_files)
 
-    archive_dir = sandbox_path / "Archive"
     graph = build_downloads_hygiene_graph(auto_approve=auto_approve)
     initial_state = create_initial_state(
         downloads_dir=sandbox_path,
-        archive_dir=archive_dir,
+        min_file_age_minutes=0,  # synthetic sandbox files are freshly written
         installer_max_age_days=installer_max_age_days,
         auto_approve=auto_approve,
     )
@@ -161,7 +161,7 @@ def _run_scenario_in_directory(
                 "action": item.proposed_action.value.upper(),
                 "category": cat_str,
             }
-            if item.proposed_action == ProposedAction.ARCHIVE:
+            if item.proposed_action == ProposedAction.SORT:
                 act_dict["destination"] = cat_str
             proposed_actions.append(act_dict)
 

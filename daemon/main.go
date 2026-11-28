@@ -150,7 +150,7 @@ func checkThresholds() {
 	if store != nil {
 		trig, err := watcher.ShouldTriggerDownloads(store, cfg.Daemon.DownloadsCadenceDays)
 		if err == nil && trig {
-			eligibleCount, errCount := watcher.CountEligibleDownloads(cfg.Downloads.Directory)
+			eligibleCount, errCount := watcher.CountEligibleDownloads(cfg.Downloads.Directory, watcher.DownloadsMinFileAge)
 			if errCount != nil {
 				log.Printf("downloads watcher error on %s: %v", cfg.Downloads.Directory, errCount)
 			} else if eligibleCount == 0 {

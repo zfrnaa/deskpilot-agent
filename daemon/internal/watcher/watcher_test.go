@@ -128,7 +128,7 @@ func TestShouldTriggerDownloads(t *testing.T) {
 func TestCountEligibleDownloads(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	count, err := CountEligibleDownloads(tmpDir)
+	count, err := CountEligibleDownloads(tmpDir, DownloadsMinFileAge)
 	if err != nil || count != 0 {
 		t.Fatalf("Expected 0 files in empty directory, got %d, err: %v", count, err)
 	}
@@ -136,10 +136,25 @@ func TestCountEligibleDownloads(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "file1.zip"), []byte("zip"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "installer.exe"), []byte("exe"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, ".hidden"), []byte("hidden"), 0644)
-	os.Mkdir(filepath.Join(tmpDir, "Archive"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "movie.mp4.crdownload"), []byte("partial"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "fresh.pdf"), []byte("fresh"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "desktop.ini"), []byte("shell"), 0644)
+	os.Mkdir(filepath.Join(tmpDir, "Archives"), 0755)
 
-	count, err = CountEligibleDownloads(tmpDir)
+	old := time.Now().Add(-1 * time.Hour)
+	for _, name := range []string{"file1.zip", "installer.exe", ".hidden", "movie.mp4.crdownload", "desktop.ini"} {
+		os.Chtimes(filepath.Join(tmpDir, name), old, old)
+	}
+
+	// fresh.pdf (just written) and the partial download must be skipped
+	count, err = CountEligibleDownloads(tmpDir, DownloadsMinFileAge)
 	if err != nil || count != 2 {
 		t.Fatalf("Expected 2 eligible files, got %d, err: %v", count, err)
+	}
+
+	// With no minimum age, the fresh file counts too (partial still skipped)
+	count, err = CountEligibleDownloads(tmpDir, 0)
+	if err != nil || count != 3 {
+		t.Fatalf("Expected 3 eligible files with minAge=0, got %d, err: %v", count, err)
 	}
 }

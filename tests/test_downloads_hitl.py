@@ -48,7 +48,7 @@ async def test_downloads_graph_interrupts_before_execute_actions(tmp_path: Path)
 
     state = create_initial_state(
         downloads_dir=tmp_path,
-        archive_dir=tmp_path / "Archive",
+        min_file_age_minutes=0,
         installer_max_age_days=30,
         auto_approve=True,
     )
@@ -70,7 +70,7 @@ async def test_downloads_graph_interrupts_before_execute_actions(tmp_path: Path)
     assert stale_exe.exists(), "Stale installer must remain untouched when interrupted"
     assert doc_dup.exists(), "Duplicate file must remain untouched when interrupted"
     assert doc_orig.exists(), "Original statement file must remain untouched"
-    assert not (tmp_path / "Archive").exists(), "Archive folder should not be created yet"
+    assert not (tmp_path / "Documents").exists(), "Category folders should not be created yet"
     assert snapshot.values.get("total_bytes_freed", 0) == 0
     assert snapshot.values.get("total_files_moved", 0) == 0
 
@@ -103,7 +103,7 @@ async def test_downloads_graph_time_travel_update_state_and_resume(tmp_path: Pat
 
     state = create_initial_state(
         downloads_dir=tmp_path,
-        archive_dir=tmp_path / "Archive",
+        min_file_age_minutes=0,
         installer_max_age_days=30,
         auto_approve=True,
     )
@@ -118,12 +118,12 @@ async def test_downloads_graph_time_travel_update_state_and_resume(tmp_path: Pat
     assert set(action_plan.keys()) == {
         "delete_installers",
         "delete_duplicates",
-        "archive_archives",
-        "archive_documents",
+        "sort_archives",
+        "sort_documents",
     }
 
     # Time travel: Human reviews and decides to ONLY approve 'delete_duplicates'
-    # Overriding 'approved_actions' removes 'delete_installers', 'archive_archives', and 'archive_documents'
+    # Overriding 'approved_actions' removes 'delete_installers', 'sort_archives', and 'sort_documents'
     resume_result = await resume_downloads_hygiene(
         graph,
         thread_id=thread_id,
@@ -138,9 +138,9 @@ async def test_downloads_graph_time_travel_update_state_and_resume(tmp_path: Pat
     assert not doc_dup.exists(), "Approved duplicate must be deleted"
     assert stale_exe.exists(), "Unapproved stale installer must be preserved on disk"
     assert archive_zip.exists(), "Unapproved archive must remain in downloads"
-    assert not (tmp_path / "Archive" / "data.zip").exists()
+    assert not (tmp_path / "Archives" / "data.zip").exists()
     assert doc_orig.exists(), "Unapproved original document must remain in downloads"
-    assert not (tmp_path / "Archive" / "report.pdf").exists()
+    assert not (tmp_path / "Documents" / "report.pdf").exists()
 
     assert resume_result["total_bytes_freed"] == len(b"dup_content")
     assert resume_result["total_files_moved"] == 0
@@ -161,7 +161,7 @@ async def test_downloads_graph_normal_run_without_checkpointer(tmp_path: Path):
 
     state = create_initial_state(
         downloads_dir=tmp_path,
-        archive_dir=tmp_path / "Archive",
+        min_file_age_minutes=0,
         installer_max_age_days=30,
         auto_approve=True,
     )
@@ -171,7 +171,7 @@ async def test_downloads_graph_normal_run_without_checkpointer(tmp_path: Path):
     # Verifies standard complete flow without breakpoint
     assert not stale_exe.exists()
     assert not doc_file.exists()
-    assert (tmp_path / "Archive" / "sheet.xlsx").exists()
+    assert (tmp_path / "Documents" / "sheet.xlsx").exists()
     assert final_state["total_bytes_freed"] == len(b"legacy_installer_bytes")
     assert final_state["total_files_moved"] == 1
 
@@ -195,7 +195,7 @@ async def test_downloads_graph_resume_without_actions_override(tmp_path: Path):
 
     state = create_initial_state(
         downloads_dir=tmp_path,
-        archive_dir=tmp_path / "Archive",
+        min_file_age_minutes=0,
         installer_max_age_days=30,
         auto_approve=True,
     )
@@ -237,7 +237,7 @@ async def test_resume_before_human_review_preserves_approved_actions(tmp_path: P
 
     state = create_initial_state(
         downloads_dir=tmp_path,
-        archive_dir=tmp_path / "Archive",
+        min_file_age_minutes=0,
         installer_max_age_days=30,
         auto_approve=False,
     )

@@ -8,6 +8,10 @@ from typing import TypedDict
 
 from pydantic import BaseModel, model_validator
 
+# Files modified more recently than this are treated as still downloading / just downloaded
+# and are left in place. Mirrored by the Go daemon (daemon/internal/watcher/downloads.go).
+MIN_FILE_AGE_MINUTES = 10
+
 
 class DownloadFileCategory(str, Enum):
     """Categories for files discovered in the Downloads directory."""
@@ -15,16 +19,32 @@ class DownloadFileCategory(str, Enum):
     INSTALLER = "installer"          # .exe, .msi, .pkg, .deb
     ARCHIVE = "archive"              # .zip, .tar, .gz, .7z, .rar
     DOCUMENT = "document"            # .pdf, .docx, .xlsx, .pptx, .csv
-    MEDIA = "media"                  # .mp4, .mkv, .mp3, .png, .jpg
+    IMAGE = "image"                  # .png, .jpg, .gif, .webp
+    VIDEO = "video"                  # .mp4, .mkv, .mov
+    AUDIO = "audio"                  # .mp3, .wav, .flac
+    CODE = "code"                    # .py, .js, .json, .html
     DUPLICATE = "duplicate"          # e.g. "document (1).pdf"
     OTHER = "other"
+
+
+# Destination subfolder (inside the Downloads directory) for each sortable category.
+CATEGORY_FOLDERS: dict[DownloadFileCategory, str] = {
+    DownloadFileCategory.INSTALLER: "Installers",
+    DownloadFileCategory.ARCHIVE: "Archives",
+    DownloadFileCategory.DOCUMENT: "Documents",
+    DownloadFileCategory.IMAGE: "Images",
+    DownloadFileCategory.VIDEO: "Videos",
+    DownloadFileCategory.AUDIO: "Audio",
+    DownloadFileCategory.CODE: "Code",
+    DownloadFileCategory.OTHER: "Other",
+}
 
 
 class ProposedAction(str, Enum):
     """Hygiene action proposed for a download item."""
 
     DELETE = "delete"                # Safe to delete (e.g. old installers > N days, duplicates)
-    ARCHIVE = "archive"              # Move to Downloads/Archive
+    SORT = "sort"                    # Move into Downloads/<Category> folder
     KEEP = "keep"                    # Keep in place
 
 
@@ -52,11 +72,12 @@ class DownloadsAgentState(TypedDict, total=False):
     """State schema for the Downloads Hygiene LangGraph workflow."""
 
     downloads_dir: Path
-    archive_dir: Path
+    sort_root: Path  # Parent directory for category folders (defaults to downloads_dir)
     installer_max_age_days: int
+    min_file_age_minutes: int
     items: list[DownloadItem]
     action_plan: dict[str, list[DownloadItem]]
-    approved_actions: list[str]  # e.g. ["delete_installers", "archive_documents"]
+    approved_actions: list[str]  # e.g. ["delete_installers", "sort_images"]
     total_bytes_freed: int
     total_files_moved: int
     errors: list[str]
@@ -65,21 +86,19 @@ class DownloadsAgentState(TypedDict, total=False):
 
 def create_initial_state(
     downloads_dir: Path,
-    archive_dir: Path | None = None,
+    sort_root: Path | None = None,
     installer_max_age_days: int = 30,
     auto_approve: bool = False,
+    min_file_age_minutes: int = MIN_FILE_AGE_MINUTES,
 ) -> DownloadsAgentState:
     """Create a fully initialized DownloadsAgentState dictionary."""
     resolved_downloads = Path(downloads_dir).expanduser().resolve()
-    resolved_archive = (
-        Path(archive_dir).expanduser().resolve()
-        if archive_dir is not None
-        else resolved_downloads / "Archive"
-    )
+    resolved_root = Path(sort_root).expanduser().resolve() if sort_root is not None else resolved_downloads
     return {
         "downloads_dir": resolved_downloads,
-        "archive_dir": resolved_archive,
+        "sort_root": resolved_root,
         "installer_max_age_days": installer_max_age_days,
+        "min_file_age_minutes": min_file_age_minutes,
         "items": [],
         "action_plan": {},
         "approved_actions": [],

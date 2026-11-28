@@ -42,10 +42,11 @@ def scan_downloads(state: DownloadsAgentState) -> dict[str, Any]:
 
 
 def categorize_and_analyze(state: DownloadsAgentState) -> dict[str, Any]:
-    """Node 2: Identify duplicates, stale installers, archives, documents, and propose actions."""
+    """Node 2: Identify duplicates, stale installers, and the category folder for every other file."""
     items = state.get("items", [])
     max_age = state.get("installer_max_age_days", 30)
-    updated_items = categorize_items(items, installer_max_age_days=max_age)
+    min_age = state.get("min_file_age_minutes", 0)
+    updated_items = categorize_items(items, installer_max_age_days=max_age, min_file_age_minutes=min_age)
     return {"items": updated_items}
 
 
@@ -116,7 +117,7 @@ def human_review_node(
             console.print(f" [bold green]•[/bold green] {s}")
 
         if sys.stdin.isatty():
-            choice = input("\nApprove executing proposed downloads cleanup actions? [y/N]: ").strip().lower()
+            choice = input("\nApprove deleting and sorting these downloads? [y/N]: ").strip().lower()
             if choice in {"y", "yes"}:
                 return {"approved_actions": list(action_plan.keys())}
     except Exception:
@@ -126,16 +127,16 @@ def human_review_node(
 
 
 def execute_actions(state: DownloadsAgentState) -> dict[str, Any]:
-    """Node 5: Safely execute approved file deletions and archive moves."""
+    """Node 5: Safely execute approved file deletions and category-folder moves."""
     items = state.get("items", [])
     approved = state.get("approved_actions", [])
-    archive_dir = state.get("archive_dir", Path("Archive"))
+    sort_root = state.get("sort_root") or state.get("downloads_dir") or Path(".")
     current_errors = list(state.get("errors", []))
 
     freed, moved, action_errors = execute_approved_actions(
         items=items,
         approved_actions=approved,
-        archive_dir=archive_dir,
+        sort_root=sort_root,
     )
 
     return {
@@ -226,7 +227,6 @@ async def run_downloads_hygiene(
     """High-level entrypoint to execute downloads hygiene agent using configured settings."""
     downloads_dir = settings.downloads.get_resolved_directory()
     installer_max_age_days = settings.downloads.stale_days
-    archive_dir = downloads_dir / "Archive"
 
     graph = build_downloads_hygiene_graph(
         review_func=review_func,
@@ -235,7 +235,6 @@ async def run_downloads_hygiene(
 
     initial_state = create_initial_state(
         downloads_dir=downloads_dir,
-        archive_dir=archive_dir,
         installer_max_age_days=installer_max_age_days,
         auto_approve=auto_approve,
     )

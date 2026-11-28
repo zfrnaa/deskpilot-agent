@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -45,13 +46,17 @@ def test_count_eligible_downloads(tmp_path: Path):
     downloads_dir.mkdir()
     assert count_eligible_downloads(downloads_dir) == []
 
-    (downloads_dir / "setup.exe").write_text("bin")
-    (downloads_dir / "archive.zip").write_text("zip")
-    (downloads_dir / ".hidden").write_text("hidden")
+    old = time.time() - 3600
+    for name in ("setup.exe", "archive.zip", ".hidden", "movie.mp4.crdownload", "desktop.ini"):
+        (downloads_dir / name).write_text("x")
+        os.utime(downloads_dir / name, (old, old))
+    (downloads_dir / "fresh.pdf").write_text("just downloaded")
     (downloads_dir / "SubDir").mkdir()
 
     res = count_eligible_downloads(downloads_dir)
     assert len(res) == 2
+    # Fresh file counts once the minimum age is disabled; partial download never does
+    assert len(count_eligible_downloads(downloads_dir, min_age_seconds=0)) == 3
     filenames = {p.name for p in res}
     assert "setup.exe" in filenames
     assert "archive.zip" in filenames
@@ -215,3 +220,14 @@ async def test_daemon_power_plan_transitions(tmp_path):
         res3 = await run_daemon_tick(settings, store, send_notifications=False)
         assert res3.power_plan_switched == "normal"
         mock_set.assert_called_once_with(settings.power.normal_plan)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows file attributes only")
+def test_count_eligible_downloads_skips_windows_hidden_files(tmp_path: Path):
+    import subprocess
+
+    (tmp_path / "hidden.pdf").write_text("x")
+    (tmp_path / "visible.pdf").write_text("x")
+    subprocess.run(["attrib", "+h", str(tmp_path / "hidden.pdf")], check=True)
+    res = count_eligible_downloads(tmp_path, min_age_seconds=0)
+    assert [p.name for p in res] == ["visible.pdf"]

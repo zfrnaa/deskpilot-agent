@@ -2,14 +2,26 @@ package watcher
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"deskpilot/daemon/internal/db"
 )
 
-// CountEligibleDownloads counts non-hidden top-level files in the downloads directory.
-func CountEligibleDownloads(dirPath string) (int, error) {
+// DownloadsMinFileAge is how long a file must sit untouched before it is considered
+// ready to sort. Mirrors MIN_FILE_AGE_MINUTES / DOWNLOADS_MIN_FILE_AGE_SECONDS in Python.
+const DownloadsMinFileAge = 10 * time.Minute
+
+// partialDownloadExts are in-progress browser/download-manager files that are never sorted.
+var partialDownloadExts = map[string]bool{
+	".crdownload": true, ".part": true, ".partial": true,
+	".download": true, ".opdownload": true, ".tmp": true,
+}
+
+// CountEligibleDownloads counts top-level files in the downloads directory that are ready to sort:
+// non-hidden, not partial downloads, and unmodified for at least minAge.
+func CountEligibleDownloads(dirPath string, minAge time.Duration) (int, error) {
 	if dirPath == "" {
 		return 0, nil
 	}
@@ -21,6 +33,7 @@ func CountEligibleDownloads(dirPath string) (int, error) {
 		return 0, err
 	}
 
+	now := time.Now()
 	count := 0
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -28,6 +41,16 @@ func CountEligibleDownloads(dirPath string) (int, error) {
 		}
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "~") {
+			continue
+		}
+		if lower := strings.ToLower(name); lower == "desktop.ini" || lower == "thumbs.db" {
+			continue
+		}
+		if partialDownloadExts[strings.ToLower(filepath.Ext(name))] {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || isHiddenOrSystem(info) || now.Sub(info.ModTime()) < minAge {
 			continue
 		}
 		count++

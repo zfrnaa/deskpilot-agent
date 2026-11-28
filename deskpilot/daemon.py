@@ -134,15 +134,38 @@ def record_screenshot_alert(store: SQLiteStore) -> None:
     )
 
 
-def count_eligible_downloads(downloads_dir: Path) -> list[Path]:
-    """Return list of unorganized top-level files in the downloads directory."""
+DOWNLOADS_MIN_FILE_AGE_SECONDS = 10 * 60
+DOWNLOADS_PARTIAL_EXTENSIONS = {".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp"}
+
+
+def count_eligible_downloads(
+    downloads_dir: Path,
+    min_age_seconds: float = DOWNLOADS_MIN_FILE_AGE_SECONDS,
+) -> list[Path]:
+    """Return unorganized top-level files in the downloads directory that are ready to sort.
+
+    Skips hidden/temp files, in-progress partial downloads, and files modified within
+    ``min_age_seconds`` (mirrors CountEligibleDownloads in the Go daemon).
+    """
     if not downloads_dir.exists() or not downloads_dir.is_dir():
         return []
-    return [
-        p
-        for p in downloads_dir.iterdir()
-        if p.is_file() and not p.name.startswith((".", "~"))
-    ]
+    now = time.time()
+    eligible: list[Path] = []
+    for p in downloads_dir.iterdir():
+        if not p.is_file() or p.name.startswith((".", "~")) or p.name.lower() in ("desktop.ini", "thumbs.db"):
+            continue
+        if p.suffix.lower() in DOWNLOADS_PARTIAL_EXTENSIONS:
+            continue
+        try:
+            st = p.stat()
+            if getattr(st, "st_file_attributes", 0) & 0x6:  # Windows HIDDEN | SYSTEM
+                continue
+            if now - st.st_mtime < min_age_seconds:
+                continue
+        except OSError:
+            continue
+        eligible.append(p)
+    return eligible
 
 
 def should_trigger_downloads_triage(
