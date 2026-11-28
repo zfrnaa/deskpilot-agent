@@ -214,6 +214,37 @@ class DaemonCycleResult:
         self.power_plan_switched = power_plan_switched
 
 
+def sync_power_plan(
+    settings: Settings,
+    store: SQLiteStore,
+    active_game: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Reconcile Windows power plan with active game state and SQLite store."""
+    power_cfg = getattr(settings, "power", None)
+    if not (power_cfg and power_cfg.enabled):
+        return active_game, None
+
+    mem_cfg = getattr(settings, "memory", None)
+    if active_game is None:
+        active_game = detect_active_game(mem_cfg.game_processes if mem_cfg else None)
+
+    target_mode = "gaming" if active_game else "normal"
+    prev_mode_item = store.get(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY)
+    prev_mode = prev_mode_item.value.get("mode") if prev_mode_item else None
+
+    target_plan = power_cfg.gaming_plan if target_mode == "gaming" else power_cfg.normal_plan
+    target_guid = resolve_power_plan_guid(target_plan)
+    active_guid = get_active_power_plan_guid()
+
+    if prev_mode != target_mode or (target_guid and active_guid and active_guid != target_guid):
+        ok, _ = set_power_plan(target_plan)
+        if ok:
+            store.put(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY, {"mode": target_mode})
+            return active_game, target_mode
+
+    return active_game, None
+
+
 async def run_daemon_tick(
     settings: Settings,
     store: SQLiteStore,
@@ -261,26 +292,13 @@ async def run_daemon_tick(
                 result.memory_cleanup_triggered = True
 
     # 1b. Dynamic Power Plan Switching
-    power_cfg = getattr(settings, "power", None)
-    if power_cfg and power_cfg.enabled:
-        active_game_for_power = result.active_game
-        if active_game_for_power is None and not (mem_cfg and mem_cfg.enabled):
-            active_game_for_power = detect_active_game(mem_cfg.game_processes if mem_cfg else None)
-            result.active_game = active_game_for_power
-
-        target_mode = "gaming" if active_game_for_power else "normal"
-        prev_mode_item = store.get(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY)
-        prev_mode = prev_mode_item.value.get("mode") if prev_mode_item else None
-
-        target_plan = power_cfg.gaming_plan if target_mode == "gaming" else power_cfg.normal_plan
-        target_guid = resolve_power_plan_guid(target_plan)
-        active_guid = get_active_power_plan_guid()
-
-        if prev_mode != target_mode or (target_guid and active_guid and active_guid != target_guid):
-            ok, _ = set_power_plan(target_plan)
-            if ok:
-                store.put(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY, {"mode": target_mode})
-                result.power_plan_switched = target_mode
+    active_game_for_power, switched_mode = sync_power_plan(
+        settings, store, active_game=result.active_game
+    )
+    if result.active_game is None:
+        result.active_game = active_game_for_power
+    if switched_mode is not None:
+        result.power_plan_switched = switched_mode
 
     # 2. Inspect screenshots directory
     screenshots_dir = settings.screenshots.get_resolved_directory()

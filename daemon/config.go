@@ -32,6 +32,9 @@ type Config struct {
 		PeriodicIntervalMinutes         int  `yaml:"periodic_interval_minutes"`
 		HighMemoryLoadThresholdPercent int  `yaml:"high_memory_load_threshold_percent"`
 	} `yaml:"memory"`
+	Power struct {
+		Enabled bool `yaml:"enabled"`
+	} `yaml:"power"`
 }
 
 // expandHome expands a leading ~/ or ~\ to the current user's profile directory.
@@ -64,6 +67,7 @@ func DefaultConfig(projectRoot string) *Config {
 	cfg.Memory.PeriodicCleanupEnabled = true
 	cfg.Memory.PeriodicIntervalMinutes = 30
 	cfg.Memory.HighMemoryLoadThresholdPercent = 75
+	cfg.Power.Enabled = true
 
 	resolveDefaultPaths(&cfg, projectRoot)
 	return &cfg

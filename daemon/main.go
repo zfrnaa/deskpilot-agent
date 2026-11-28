@@ -179,4 +179,9 @@ func checkThresholds() {
 			_ = store.RecordTimestamp(db.MemoryCleanupLastTriggerKey)
 		}
 	}
+
+	// 4. Dynamic power plan sync
+	if cfg.Power.Enabled {
+		_ = runner.RunDeskPilotSilent(projectRoot, "--sync-power")
+	}
 }

@@ -651,6 +651,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="When used with --clear-ram, skip cleanup if an active game process is detected",
     )
     parser.add_argument(
+        "--sync-power",
+        action="store_true",
+        help="Reconcile Windows power plan with active game state",
+    )
+    parser.add_argument(
         "--daemon",
         action="store_true",
         help="Run background watcher daemon (screenshot threshold & downloads cadence)",
@@ -1212,6 +1217,7 @@ async def main_async(
     use_tui: bool = False,
     clear_ram: bool = False,
     periodic: bool = False,
+    sync_power: bool = False,
 ) -> int:
     """Asynchronous entry point for the DeskPilot boot orchestrator."""
     c = ui_theme.get_console(console)
@@ -1221,6 +1227,16 @@ async def main_async(
         except Exception as e:
             c.print(f"[red]Error loading configuration: {e}[/red]")
             return 1
+
+    if sync_power:
+        from deskpilot.daemon import sync_power_plan
+        from deskpilot.storage.store import get_store
+
+        db_store = get_store(settings.get_resolved_storage_path())
+        active_game, switched = sync_power_plan(settings, db_store)
+        if switched:
+            c.print(f"[bold green]Power plan switched to {switched}[/bold green] (active_game={active_game or 'none'})")
+        return 0
 
     if clear_ram:
         from deskpilot.boot_tasks.memory_manager import (
@@ -1405,6 +1421,8 @@ def main(args: list[str] | None = None) -> None:
             )
         elif parsed.clear_ram:
             sys.exit(asyncio.run(main_async(clear_ram=True, periodic=parsed.periodic)))
+        elif parsed.sync_power:
+            sys.exit(asyncio.run(main_async(sync_power=True)))
         elif parsed.storage_status:
             sys.exit(asyncio.run(main_async(storage_status=True)))
         elif parsed.check_tracing:
