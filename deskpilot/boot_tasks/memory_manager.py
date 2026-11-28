@@ -238,6 +238,81 @@ DEFAULT_GAME_PROCESSES: list[str] = [
 ]
 
 
+_NON_GAME_FULLSCREEN_PROCESSES = {
+    "explorer.exe",
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "floorp.exe",
+    "brave.exe",
+    "opera.exe",
+    "code.exe",
+    "antigravity.exe",
+    "windowsterminal.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "cmd.exe",
+    "conhost.exe",
+    "dwm.exe",
+    "shellexperiencehost.exe",
+    "searchhost.exe",
+    "lockapp.exe",
+    "vlc.exe",
+    "mpv.exe",
+}
+
+
+def detect_fullscreen_foreground_game() -> str | None:
+    """Detect if the foreground window is a fullscreen/borderless non-system app."""
+    if sys.platform != "win32":
+        return None
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+
+        screen_w = user32.GetSystemMetrics(0)
+        screen_h = user32.GetSystemMetrics(1)
+        if screen_w <= 0 or screen_h <= 0:
+            return None
+
+        is_fullscreen = (
+            rect.left <= 0
+            and rect.top <= 0
+            and rect.right >= screen_w
+            and rect.bottom >= screen_h
+        )
+        if not is_fullscreen:
+            return None
+
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return None
+
+        kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        h_proc = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | 0x0010, False, pid.value)
+        if not h_proc:
+            return None
+        try:
+            buf = ctypes.create_unicode_buffer(260)
+            if psapi.GetModuleBaseNameW(h_proc, None, buf, 260):
+                exe_name = buf.value.lower().strip()
+                if exe_name and exe_name not in _NON_GAME_FULLSCREEN_PROCESSES:
+                    return exe_name
+        finally:
+            kernel32.CloseHandle(h_proc)
+    except Exception:
+        return None
+    return None
+
+
 def detect_active_game(known_games: list[str] | None = None) -> str | None:
     """Return the name of an active game process if currently running, else None."""
     targets = [g.lower().strip() for g in (known_games or DEFAULT_GAME_PROCESSES)]
@@ -245,7 +320,7 @@ def detect_active_game(known_games: list[str] | None = None) -> str | None:
     for g in targets:
         if g in running:
             return g
-    return None
+    return detect_fullscreen_foreground_game()
 
 
 def is_game_running(known_games: list[str] | None = None) -> bool:
