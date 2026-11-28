@@ -15,7 +15,11 @@ from deskpilot.boot_tasks.memory_manager import (
     perform_game_standby_purge,
     perform_periodic_memory_cleanup,
 )
-from deskpilot.boot_tasks.power_manager import set_power_plan
+from deskpilot.boot_tasks.power_manager import (
+    get_active_power_plan_guid,
+    resolve_power_plan_guid,
+    set_power_plan,
+)
 from deskpilot.config import Settings
 from deskpilot.storage.store import SQLiteStore
 from deskpilot.ui.notifications import send_windows_toast
@@ -245,8 +249,11 @@ async def run_daemon_tick(
         prev_mode_item = store.get(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY)
         prev_mode = prev_mode_item.value.get("mode") if prev_mode_item else None
 
-        if prev_mode != target_mode:
-            target_plan = power_cfg.gaming_plan if target_mode == "gaming" else power_cfg.normal_plan
+        target_plan = power_cfg.gaming_plan if target_mode == "gaming" else power_cfg.normal_plan
+        target_guid = resolve_power_plan_guid(target_plan)
+        active_guid = get_active_power_plan_guid()
+
+        if prev_mode != target_mode or (target_guid and active_guid and active_guid != target_guid):
             ok, _ = set_power_plan(target_plan)
             if ok:
                 store.put(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY, {"mode": target_mode})
