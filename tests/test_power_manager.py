@@ -69,3 +69,14 @@ def test_detect_active_game_falls_back_to_fullscreen():
         patch("deskpilot.boot_tasks.memory_manager.detect_fullscreen_foreground_game", return_value="eldenring.exe"),
     ):
         assert detect_active_game(["tslgame.exe"]) == "eldenring.exe"
+
+
+def test_detect_active_game_launcher_child():
+    from deskpilot.boot_tasks.memory_manager import detect_active_game
+
+    with (
+        patch("deskpilot.boot_tasks.memory_manager.get_running_process_names", return_value={"steam.exe"}),
+        patch("deskpilot.boot_tasks.memory_manager.detect_launcher_child_game", return_value="helldivers2.exe"),
+        patch("deskpilot.boot_tasks.memory_manager.detect_fullscreen_foreground_game", return_value=None),
+    ):
+        assert detect_active_game(["tslgame.exe"]) == "helldivers2.exe"

@@ -313,6 +313,87 @@ def detect_fullscreen_foreground_game() -> str | None:
     return None
 
 
+_LAUNCHER_PROCESSES = {
+    "steam.exe",
+    "epicgameslauncher.exe",
+    "eadesktop.exe",
+    "battle.net.exe",
+    "upc.exe",
+}
+
+_LAUNCHER_HELPER_EXES = {
+    "steam.exe",
+    "steamwebhelper.exe",
+    "steamservice.exe",
+    "gameoverlayui.exe",
+    "epicgameslauncher.exe",
+    "epicwebhelper.exe",
+    "crashreporter.exe",
+    "eadesktop.exe",
+    "eabackgroundservice.exe",
+    "battle.net.exe",
+    "agent.exe",
+    "upc.exe",
+}
+
+
+def get_steam_library_paths() -> list[str]:
+    """Discover Steam common game directories from libraryfolders.vdf."""
+    import re
+    from pathlib import Path
+
+    candidates = [
+        Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Steam" / "steamapps" / "libraryfolders.vdf",
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Steam" / "steamapps" / "libraryfolders.vdf",
+    ]
+    paths: list[str] = []
+    for vdf in candidates:
+        if not vdf.exists():
+            continue
+        try:
+            text = vdf.read_text(encoding="utf-8", errors="ignore")
+            for match in re.findall(r'"path"\s+"([^"]+)"', text):
+                lib = Path(match.replace("\\\\", "\\")) / "steamapps" / "common"
+                if lib.exists():
+                    paths.append(str(lib).lower())
+        except Exception:
+            continue
+    return paths
+
+
+def detect_launcher_child_game() -> str | None:
+    """Detect a running game spawned by a known game launcher (Steam, Epic, EA, Battle.net)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        kernel32 = ctypes.windll.kernel32
+        snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snap == -1:
+            return None
+        try:
+            entry = PROCESSENTRY32()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+            pid_info: dict[int, tuple[int, str]] = {}
+            if kernel32.Process32First(snap, ctypes.byref(entry)):
+                while True:
+                    exe = entry.szExeFile.decode("utf-8", errors="ignore").lower().strip()
+                    pid_info[entry.th32ProcessID] = (entry.th32ParentProcessID, exe)
+                    if not kernel32.Process32Next(snap, ctypes.byref(entry)):
+                        break
+
+            launcher_pids = {
+                pid for pid, (_, exe) in pid_info.items() if exe in _LAUNCHER_PROCESSES
+            }
+            for _, (ppid, exe) in pid_info.items():
+                if ppid in launcher_pids and exe and exe not in _LAUNCHER_HELPER_EXES:
+                    return exe
+        finally:
+            kernel32.CloseHandle(snap)
+    except Exception:
+        return None
+    return None
+
+
 def detect_active_game(known_games: list[str] | None = None) -> str | None:
     """Return the name of an active game process if currently running, else None."""
     targets = [g.lower().strip() for g in (known_games or DEFAULT_GAME_PROCESSES)]
@@ -320,7 +401,7 @@ def detect_active_game(known_games: list[str] | None = None) -> str | None:
     for g in targets:
         if g in running:
             return g
-    return detect_fullscreen_foreground_game()
+    return detect_launcher_child_game() or detect_fullscreen_foreground_game()
 
 
 def is_game_running(known_games: list[str] | None = None) -> bool:
