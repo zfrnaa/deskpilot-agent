@@ -169,3 +169,12 @@ def test_sqlite_store_wal_and_busy_timeout(tmp_path: Path):
         assert int(timeout) == 5000
     finally:
         conn.close()
+
+
+def test_power_config_defaults():
+    from deskpilot.config import Settings
+
+    s = Settings()
+    assert s.power.enabled is True
+    assert s.power.gaming_plan == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+    assert s.power.normal_plan == "381b4222-f694-41f0-9685-ff5bb260df2e"

@@ -298,6 +298,14 @@ class MemoryConfig(BaseModel):
     )
 
 
+class PowerConfig(BaseModel):
+    """Configuration for dynamic Windows power plan switching."""
+
+    enabled: bool = True
+    gaming_plan: str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"  # High Performance
+    normal_plan: str = "381b4222-f694-41f0-9685-ff5bb260df2e"  # Balanced
+
+
 class Settings(BaseSettings):
     """Global configuration settings for DeskPilot."""
 
@@ -319,6 +327,7 @@ class Settings(BaseSettings):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    power: PowerConfig = Field(default_factory=PowerConfig)
     news: NewsConfig = Field(default_factory=NewsConfig)
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
 
