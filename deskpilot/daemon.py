@@ -15,6 +15,7 @@ from deskpilot.boot_tasks.memory_manager import (
     perform_game_standby_purge,
     perform_periodic_memory_cleanup,
 )
+from deskpilot.boot_tasks.power_manager import set_power_plan
 from deskpilot.config import Settings
 from deskpilot.storage.store import SQLiteStore
 from deskpilot.ui.notifications import send_windows_toast
@@ -26,6 +27,7 @@ MONTHLY_HYGIENE_LAST_TRIGGER_KEY = "monthly_hygiene_last_run_ts"
 MEMORY_CLEANUP_LAST_TRIGGER_KEY = "memory_cleanup_last_run_ts"
 SCREENSHOTS_LAST_ALERT_KEY = "screenshots_last_alert_ts"
 GAME_PREVIOUS_ACTIVE_KEY = "game_previous_active_name"
+POWER_ACTIVE_MODE_KEY = "power_active_mode"
 
 HIGH_MEMORY_COOLDOWN_SECONDS = 300
 DEFAULT_SCREENSHOT_ALERT_COOLDOWN_SECONDS = 3600
@@ -174,6 +176,7 @@ class DaemonCycleResult:
         game_standby_purged: bool = False,
         memory_cleanup_triggered: bool = False,
         active_game: str | None = None,
+        power_plan_switched: str | None = None,
     ):
         self.screenshots_count = screenshots_count
         self.screenshot_triggered = screenshot_triggered
@@ -181,6 +184,7 @@ class DaemonCycleResult:
         self.game_standby_purged = game_standby_purged
         self.memory_cleanup_triggered = memory_cleanup_triggered
         self.active_game = active_game
+        self.power_plan_switched = power_plan_switched
 
 
 async def run_daemon_tick(
@@ -228,6 +232,25 @@ async def run_daemon_tick(
                 perform_periodic_memory_cleanup(mem_cfg.game_processes, force_even_if_gaming=False)
                 record_memory_cleanup_run(store)
                 result.memory_cleanup_triggered = True
+
+    # 1b. Dynamic Power Plan Switching
+    power_cfg = getattr(settings, "power", None)
+    if power_cfg and power_cfg.enabled:
+        active_game_for_power = result.active_game
+        if active_game_for_power is None and not (mem_cfg and mem_cfg.enabled):
+            active_game_for_power = detect_active_game(mem_cfg.game_processes if mem_cfg else None)
+            result.active_game = active_game_for_power
+
+        target_mode = "gaming" if active_game_for_power else "normal"
+        prev_mode_item = store.get(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY)
+        prev_mode = prev_mode_item.value.get("mode") if prev_mode_item else None
+
+        if prev_mode != target_mode:
+            target_plan = power_cfg.gaming_plan if target_mode == "gaming" else power_cfg.normal_plan
+            ok, _ = set_power_plan(target_plan)
+            if ok:
+                store.put(DAEMON_NAMESPACE, POWER_ACTIVE_MODE_KEY, {"mode": target_mode})
+                result.power_plan_switched = target_mode
 
     # 2. Inspect screenshots directory
     screenshots_dir = settings.screenshots.get_resolved_directory()

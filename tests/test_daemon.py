@@ -178,3 +178,40 @@ def test_power_config_defaults():
     assert s.power.enabled is True
     assert s.power.gaming_plan == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
     assert s.power.normal_plan == "381b4222-f694-41f0-9685-ff5bb260df2e"
+
+
+@pytest.mark.asyncio
+async def test_daemon_power_plan_transitions(tmp_path):
+    from unittest.mock import patch
+    from deskpilot.config import Settings
+    from deskpilot.daemon import run_daemon_tick
+    from deskpilot.storage.store import SQLiteStore
+
+    settings = Settings()
+    settings.screenshots.directory = tmp_path / "screens"
+    settings.downloads.directory = tmp_path / "downloads"
+    settings.memory.periodic_cleanup_enabled = False
+    settings.memory.standby_purge_on_game = False
+
+    store = SQLiteStore(tmp_path / "state.db")
+
+    with (
+        patch("deskpilot.daemon.detect_active_game", return_value="tslgame.exe"),
+        patch("deskpilot.daemon.set_power_plan", return_value=(True, None)) as mock_set,
+    ):
+        res1 = await run_daemon_tick(settings, store, send_notifications=False)
+        assert res1.power_plan_switched == "gaming"
+        mock_set.assert_called_once_with(settings.power.gaming_plan)
+
+        # Second tick while still gaming should not switch again
+        res2 = await run_daemon_tick(settings, store, send_notifications=False)
+        assert res2.power_plan_switched is None
+        assert mock_set.call_count == 1
+
+    with (
+        patch("deskpilot.daemon.detect_active_game", return_value=None),
+        patch("deskpilot.daemon.set_power_plan", return_value=(True, None)) as mock_set,
+    ):
+        res3 = await run_daemon_tick(settings, store, send_notifications=False)
+        assert res3.power_plan_switched == "normal"
+        mock_set.assert_called_once_with(settings.power.normal_plan)
